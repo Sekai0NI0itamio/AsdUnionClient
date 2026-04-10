@@ -7,6 +7,8 @@ package net.asd.union.ui.client.gui
 
 import net.asd.union.FDPClient.CLIENT_NAME
 import net.asd.union.FDPClient.clientVersionText
+import net.asd.union.event.EventManager
+import net.asd.union.event.SessionUpdateEvent
 import net.asd.union.features.module.modules.client.HUDModule.guiColor
 import net.asd.union.ui.client.altmanager.GuiAltManager
 import net.asd.union.ui.client.clickgui.ClickGui
@@ -16,12 +18,14 @@ import net.asd.union.ui.font.AWTFontRenderer.Companion.assumeNonVolatile
 import net.asd.union.ui.font.Fonts
 import net.asd.union.ui.font.Fonts.minecraftFont
 import net.asd.union.utils.io.GitUtils
+import net.asd.union.utils.kotlin.RandomUtils
 import net.asd.union.utils.render.RenderUtils.drawBloom
 import net.asd.union.utils.render.RenderUtils.drawShadowRect
 import net.asd.union.utils.ui.AbstractScreen
 import net.minecraft.client.gui.*
 import net.minecraft.client.renderer.GlStateManager
 import net.minecraft.util.ResourceLocation
+import net.minecraft.util.Session
 import net.minecraftforge.fml.client.GuiModList
 import org.lwjgl.input.Keyboard
 import java.awt.Color
@@ -44,6 +48,8 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
     private lateinit var btnAddAccount: ImageButton
 
     private lateinit var btnQuit: QuitButton
+    private lateinit var accountTextField: GuiTextField
+    private lateinit var btnRandomAccount: GuiButton
 
     override fun initGui() {
         logo = ResourceLocation("${CLIENT_NAME.lowercase()}/mainmenu/logo.png")
@@ -82,11 +88,31 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
 
         btnAddAccount = ImageButton("ALT MANAGER", ResourceLocation("${CLIENT_NAME.lowercase()}/mainmenu/add-account.png"), width - 55, 7)
         btnQuit = QuitButton(width - 17, 7)
+        accountTextField = GuiTextField(10, mc.fontRendererObj, 10, 35, 150, 20).apply {
+            maxStringLength = 32
+            text = mc.session.username
+        }
+        btnRandomAccount = GuiButton(100, 165, 35, 50, 20, "Rand")
 
-        buttonList.addAll(listOf(btnSinglePlayer, btnMultiplayer, btnClientOptions))
+        buttonList.addAll(listOf(btnSinglePlayer, btnMultiplayer, btnClientOptions, btnRandomAccount))
+    }
+
+    override fun keyTyped(typedChar: Char, keyCode: Int) {
+        accountTextField.textboxKeyTyped(typedChar, keyCode)
+
+        if (keyCode == Keyboard.KEY_RETURN) {
+            val accountName = accountTextField.text.trim()
+            if (accountName.isNotEmpty()) {
+                setOfflineAccount(accountName)
+            }
+        }
+
+        super.keyTyped(typedChar, keyCode)
     }
 
     override fun mouseClicked(mouseX: Int, mouseY: Int, button: Int) {
+        accountTextField.mouseClicked(mouseX, mouseY, button)
+
         buttonList.forEach { guiButton ->
             if (guiButton.mousePressed(mc, mouseX, mouseY)) {
                 actionPerformed(guiButton)
@@ -117,8 +143,20 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
             0 -> mc.displayGuiScreen(GuiSelectWorld(this))
             1 -> mc.displayGuiScreen(GuiMultiplayer(this))
             2 -> mc.displayGuiScreen(GuiInfo(this))
+            100 -> {
+                val randomName = RandomUtils.randomUsername()
+                accountTextField.text = randomName
+                setOfflineAccount(randomName)
+            }
             3 -> {} // Update check removed - do nothing
         }
+    }
+
+    private fun setOfflineAccount(username: String) {
+        val uuid = UUID.nameUUIDFromBytes("OfflinePlayer:$username".toByteArray(Charsets.UTF_8))
+        mc.session = Session(username, uuid.toString(), "-", "legacy")
+        accountTextField.text = username
+        EventManager.call(SessionUpdateEvent)
     }
 
     override fun drawScreen(mouseX: Int, mouseY: Int, partialTicks: Float) {
@@ -179,7 +217,7 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
 
 
         Fonts.InterMedium_15.drawCenteredStringShadow(
-            "by Zywl <3 ",
+            "by Asd1281yss",
             width / 2f,
             height / 2f - 19,
             Color(255, 255, 255, 100).rgb
@@ -206,6 +244,8 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
             Color(255, 255, 255, 100).rgb
         )
 
+        drawAccountManagerUI(mouseX, mouseY)
+
         drawBloom(mouseX - 5, mouseY - 5, 10, 10, 16, Color(guiColor))
 
         GlStateManager.popMatrix()
@@ -215,4 +255,17 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
         super.drawScreen(mouseX, mouseY, partialTicks)
     }
 
+    private fun drawAccountManagerUI(mouseX: Int, mouseY: Int) {
+        minecraftFont.drawStringWithShadow("Account:", 10f, 23f, Color(255, 255, 255, 200).rgb)
+        minecraftFont.drawStringWithShadow(mc.session.username, 70f, 23f, Color(0, 255, 0, 255).rgb)
+
+        Gui.drawRect(9, 34, 161, 56, Color(0, 0, 0, 150).rgb)
+        accountTextField.drawTextBox()
+        btnRandomAccount.drawButton(mc, mouseX, mouseY)
+    }
+
+    override fun updateScreen() {
+        accountTextField.updateCursorCounter()
+        super.updateScreen()
+    }
 }
