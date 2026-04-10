@@ -11,6 +11,7 @@ import net.asd.union.features.module.modules.combat.Criticals;
 import net.asd.union.features.module.modules.exploit.GhostHand;
 import net.asd.union.features.module.modules.player.DelayRemover;
 import net.asd.union.features.module.modules.player.NoFall;
+import net.asd.union.handler.render.AntiTranslucent;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.BlockState;
@@ -22,6 +23,7 @@ import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.EnumWorldBlockLayer;
 import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
@@ -111,5 +113,12 @@ public abstract class MixinBlock {
         }
 
         callbackInfo.setReturnValue(f);
+    }
+
+    @Inject(method = "getBlockLayer", at = @At("RETURN"), cancellable = true)
+    private void onGetBlockLayer(CallbackInfoReturnable<EnumWorldBlockLayer> cir) {
+        if (AntiTranslucent.INSTANCE.getEnabled() && cir.getReturnValue() == EnumWorldBlockLayer.TRANSLUCENT) {
+            cir.setReturnValue(EnumWorldBlockLayer.SOLID);
+        }
     }
 }

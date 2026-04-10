@@ -387,7 +387,7 @@ object RenderUtils : MinecraftInstance {
     fun drawCone(width: Float, height: Float, useTexture: Boolean = false) {
         if (useTexture) {
             // TODO: Maybe image option support to allow many different type of hats.
-            mc.textureManager.bindTexture(ResourceLocation("fdpclient/hat.png"))
+            mc.textureManager.bindTexture(ResourceLocation("asdunionclient/hat.png"))
             enableTexture2D()
             depthMask(true)
         }

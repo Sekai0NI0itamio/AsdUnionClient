@@ -3,7 +3,7 @@
     "modid": "asdunion",
     "name": "AsdUnion",
     "description": "A free mixin-based injection hacked-client",
-    "version": "${version}",
+    "version": "b12",
     "mcversion": "1.8.9",
     "url": "https://fdpinfo.github.io",
     "updateUrl": "",

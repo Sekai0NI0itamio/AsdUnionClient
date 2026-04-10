@@ -2687,7 +2687,7 @@
       "values": {
         "MaxDelay": 1000,
         "MinDelay": 500,
-        "Message": "FDPCLIENT Client | fdpinfo.githu",
+        "Message": "AsdUnionClient | fdpinfo.githu",
         "Custom": false,
         "OnlyInGame": true,
         "Hide": false,

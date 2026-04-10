@@ -115,7 +115,7 @@ object APIConnectorUtils {
      * @return The corresponding [ResourceLocation], or a default one if not found.
      */
     fun callImage(image: String, location: String): ResourceLocation {
-        return picturesCache[Pair(image, location)] ?: ResourceLocation("fdpclient/temp.png")
+        return picturesCache[Pair(image, location)] ?: ResourceLocation("asdunionclient/temp.png")
     }
 
     /**

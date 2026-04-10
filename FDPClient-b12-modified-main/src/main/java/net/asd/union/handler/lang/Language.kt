@@ -45,7 +45,7 @@ object LanguageManager : MinecraftInstance {
     fun loadLanguages() {
         for (language in knownLanguages) {
             runCatching {
-                languageMap[language] = javaClass.getResourceAsStream("/assets/minecraft/fdpclient/lang/$language.json")!!
+                languageMap[language] = javaClass.getResourceAsStream("/assets/minecraft/asdunionclient/lang/$language.json")!!
                     .bufferedReader().use { it.decodeJson() }
             }.onSuccess {
                 LOGGER.info("Loaded language $language")

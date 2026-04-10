@@ -365,7 +365,7 @@ object HUDModule : Module("HUD", Category.CLIENT, defaultInArray = false, gameDe
                 !(event.guiScreen is GuiChat || event.guiScreen is GuiHudDesigner)) mc.entityRenderer.loadShader(
             ResourceLocation(CLIENT_NAME.lowercase() + "/blur.json")
         ) else if (mc.entityRenderer.shaderGroup != null &&
-            "fdpclient/blur.json" in mc.entityRenderer.shaderGroup.shaderGroupName) mc.entityRenderer.stopUseShader()
+            "asdunionclient/blur.json" in mc.entityRenderer.shaderGroup.shaderGroupName) mc.entityRenderer.stopUseShader()
     }
 
     init {

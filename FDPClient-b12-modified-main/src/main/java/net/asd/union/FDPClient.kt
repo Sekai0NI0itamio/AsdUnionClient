@@ -26,7 +26,10 @@ import net.asd.union.handler.cape.CapeService
 import net.asd.union.handler.combat.CombatManager
 import net.asd.union.handler.lang.LanguageManager.loadLanguages
 import net.asd.union.handler.macro.MacroManager
+import net.asd.union.handler.network.ConnectToRouter
+import net.asd.union.handler.other.SessionStorage
 import net.asd.union.handler.payload.ClientFixes
+import net.asd.union.handler.render.AntiSpawnLag
 import net.asd.union.handler.tabs.BlocksTab
 import net.asd.union.handler.tabs.ExploitsTab
 import net.asd.union.handler.tabs.HeadsTab
@@ -46,6 +49,8 @@ import net.asd.union.utils.client.ClassUtils.hasForge
 import net.asd.union.utils.client.ClientUtils.LOGGER
 import net.asd.union.utils.client.ClientUtils.disableFastRender
 import net.asd.union.utils.client.BlinkUtils
+import net.asd.union.utils.client.EntityCache
+import net.asd.union.utils.client.ItemCache
 import net.asd.union.utils.client.PacketUtils
 import net.asd.union.utils.inventory.InventoryManager
 import net.asd.union.utils.kotlin.SharedScopes
@@ -72,12 +77,12 @@ object FDPClient {
      *
      * This has all of the basic information.
      */
-    const val CLIENT_NAME = "FDPCLIENT"
-    const val CLIENT_AUTHOR = "Zywl"
+    const val CLIENT_NAME = "AsdUnionClient"
+    const val CLIENT_AUTHOR = "Asd1281yss"
     const val CLIENT_CLOUD = "https://cloud.liquidbounce.net/LiquidBounce"
     const val CLIENT_WEBSITE = "fdpinfo.github.io"
     const val CLIENT_GITHUB = "https://github.com/Itamio/FDPClient"
-    const val CLIENT_VERSION = "b12"
+    const val CLIENT_VERSION = "1.0"
     
     val clientVersionText = gitInfo["git.build.version"]?.toString() ?: "unknown"
     val clientVersionNumber = clientVersionText.substring(1).toIntOrNull() ?: 0 // version format: "b<VERSION>" on legacy
@@ -90,7 +95,7 @@ object FDPClient {
      */
     const val IN_DEV = false
 
-    val clientTitle = CLIENT_NAME + " " + clientVersionText + " " + clientCommit + "  | " + if (IN_DEV) " | DEVELOPMENT BUILD" else ""
+    val clientTitle = "AsdUnionClient - FDPClient Rebranded"
 
     var isStarting = true
     var isLoadingConfig = true
@@ -142,9 +147,14 @@ object FDPClient {
             // Register listeners
             RotationUtils
             ClientFixes
+            ConnectToRouter
+            AntiSpawnLag
             CombatManager
             MacroManager
             CapeService
+            SessionStorage
+            EntityCache
+            ItemCache
             InventoryUtils
             InventoryManager
             MiniMapRegister
@@ -164,12 +174,6 @@ object FDPClient {
             registerCommands()
 
             // Note: Module registration is now handled by FastStartupManager
-
-            // API Connecter
-            SharedScopes.IO.launch {
-                performAllChecksAsync()
-            }
-
             runCatching {
                 // Remapper
                 loadSrg()
@@ -195,7 +199,6 @@ object FDPClient {
             if (hasForge()) {
                 BlocksTab()
                 ExploitsTab()
-                HeadsTab()
             }
 
             // Disable optifine fastrender
@@ -205,24 +208,6 @@ object FDPClient {
             messageOfTheDay?.message?.let { LOGGER.info("Message of the day: $it") }
 
             customFontManager = SimpleFontManager.create()
-
-            // Login into known token if not empty
-            if (CapeService.knownToken.isNotBlank()) {
-                SharedScopes.IO.launch {
-                    runCatching {
-                        CapeService.login(CapeService.knownToken)
-                    }.onFailure {
-                        LOGGER.error("Failed to login into known cape token.", it)
-                    }.onSuccess {
-                        LOGGER.info("Successfully logged in into known cape token.")
-                    }
-                }
-            }
-
-            // Refresh cape service
-            CapeService.refreshCapeCarriers {
-                LOGGER.info("Successfully loaded ${it.size} cape carriers.")
-            }
 
             // Load background
             FileManager.loadBackground()

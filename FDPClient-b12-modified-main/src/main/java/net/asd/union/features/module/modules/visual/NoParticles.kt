@@ -73,6 +73,9 @@ object NoParticles : Module("NoParticles", Category.VISUAL, Keyboard.KEY_NONE, d
         }
     }
 
+    @JvmStatic
+    fun shouldBlockAllParticles(): Boolean = state && allParticles
+
     /**
      * Intercept particle packets and cancel them based on settings
      */

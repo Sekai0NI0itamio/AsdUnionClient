@@ -47,8 +47,8 @@ object GuiCapeManager : AbstractScreen() {
 
     enum class CapeStyle(val location: ResourceLocation?) {
         NONE(APIConnectorUtils.callImage("none", "cape")),
-        CLASSIC(ResourceLocation("fdpclient/cape/classic.png")),
-        CLASSIC2(ResourceLocation("fdpclient/cape/classic2.png")),
+        CLASSIC(ResourceLocation("asdunionclient/cape/classic.png")),
+        CLASSIC2(ResourceLocation("asdunionclient/cape/classic2.png")),
         AURORA(APIConnectorUtils.callImage("aurora", "cape")),
         FOREST(APIConnectorUtils.callImage("forest", "cape")),
         ROSE(APIConnectorUtils.callImage("rose", "cape")),

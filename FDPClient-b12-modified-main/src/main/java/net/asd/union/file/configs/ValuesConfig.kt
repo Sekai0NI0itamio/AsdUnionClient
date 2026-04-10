@@ -25,6 +25,13 @@ import net.asd.union.handler.payload.ClientFixes.fmlFixesEnabled
 import net.asd.union.file.FileConfig
 import net.asd.union.file.FileManager.PRETTY_GSON
 import net.asd.union.handler.lang.LanguageManager.overrideLanguage
+import net.asd.union.handler.network.ConnectToRouter
+import net.asd.union.handler.other.SessionStorage
+import net.asd.union.handler.render.AntiSpawnLag
+import net.asd.union.handler.render.AntiTranslucent
+import net.asd.union.handler.render.LazyChunkCache
+import net.asd.union.handler.render.NoChatEffects
+import net.asd.union.handler.render.NoTitle
 import net.asd.union.ui.client.gui.GuiClientConfiguration.Companion.altsLength
 import net.asd.union.ui.client.gui.GuiClientConfiguration.Companion.altsPrefix
 import net.asd.union.ui.client.gui.GuiClientConfiguration.Companion.enabledClientTitle
@@ -64,6 +71,13 @@ class ValuesConfig(file: File) : FileConfig(file) {
                         jsonValue["AntiForgePayloads"].asBoolean
                     if (jsonValue.has("FixResourcePackExploit")) blockResourcePackExploit =
                         jsonValue["FixResourcePackExploit"].asBoolean
+                    if (jsonValue.has("ConnectToRouter")) ConnectToRouter.enabled = jsonValue["ConnectToRouter"].asBoolean
+                    if (jsonValue.has("AntiSpawnLag")) AntiSpawnLag.enabled = jsonValue["AntiSpawnLag"].asBoolean
+                    if (jsonValue.has("LazyChunks")) LazyChunkCache.enabled = jsonValue["LazyChunks"].asBoolean
+                    if (jsonValue.has("AntiTranslucent")) AntiTranslucent.enabled =
+                        jsonValue["AntiTranslucent"].asBoolean
+                    if (jsonValue.has("NoChatEffects")) NoChatEffects.enabled = jsonValue["NoChatEffects"].asBoolean
+                    if (jsonValue.has("NoTitle")) NoTitle.enabled = jsonValue["NoTitle"].asBoolean
                     if (jsonValue.has("ClientBrand")) possibleBrands.set(jsonValue["ClientBrand"].asString)
                     if (jsonValue.has("AutoReconnectDelay")) delay = jsonValue["AutoReconnectDelay"].asInt
                 }
@@ -85,6 +99,8 @@ class ValuesConfig(file: File) : FileConfig(file) {
                     if (jsonValue.has("CleanAlts")) unformattedAlts = jsonValue["CleanAlts"].asBoolean
                     if (jsonValue.has("AltsPrefix")) altsPrefix = jsonValue["AltsPrefix"].asString
                     if (jsonValue.has("OverrideLanguage")) overrideLanguage = jsonValue["OverrideLanguage"].asString
+                    if (jsonValue.has("LastUsername")) SessionStorage.lastUsername = jsonValue["LastUsername"].asString
+                    SessionStorage.applySavedUsername()
                 }
                 else -> {
                     val module = moduleManager[key] ?: continue
@@ -128,6 +144,12 @@ class ValuesConfig(file: File) : FileConfig(file) {
             addProperty("AntiForgeProxy", blockProxyPacket)
             addProperty("AntiForgePayloads", blockPayloadPackets)
             addProperty("FixResourcePackExploit", blockResourcePackExploit)
+            addProperty("ConnectToRouter", ConnectToRouter.enabled)
+            addProperty("AntiSpawnLag", AntiSpawnLag.enabled)
+            addProperty("LazyChunks", LazyChunkCache.enabled)
+            addProperty("AntiTranslucent", AntiTranslucent.enabled)
+            addProperty("NoChatEffects", NoChatEffects.enabled)
+            addProperty("NoTitle", NoTitle.enabled)
             addProperty("ClientBrand", possibleBrands.get())
             addProperty("AutoReconnectDelay", delay)
         }
@@ -141,6 +163,7 @@ class ValuesConfig(file: File) : FileConfig(file) {
         jsonObject.add("DonatorCape", capeObject)
 
         val clientObject = JsonObject()
+        val usernameForSave = SessionStorage.getUsernameForSave()
         clientObject.run {
             addProperty("EnabledClientTitle", enabledClientTitle)
             addProperty("StylisedAlts", stylisedAlts)
@@ -148,6 +171,7 @@ class ValuesConfig(file: File) : FileConfig(file) {
             addProperty("CleanAlts", unformattedAlts)
             addProperty("AltsPrefix", altsPrefix)
             addProperty("OverrideLanguage", overrideLanguage)
+            addProperty("LastUsername", usernameForSave)
         }
         jsonObject.add("clientConfiguration", clientObject)
 

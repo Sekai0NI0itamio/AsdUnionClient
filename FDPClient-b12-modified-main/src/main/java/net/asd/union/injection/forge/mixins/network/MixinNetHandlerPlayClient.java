@@ -11,7 +11,11 @@ import net.asd.union.event.EventManager;
 import net.asd.union.features.module.modules.exploit.AntiExploit;
 import net.asd.union.features.module.modules.other.NoRotateSet;
 import net.asd.union.features.module.modules.player.Blink;
+import net.asd.union.features.module.modules.visual.NoParticles;
 import net.asd.union.handler.payload.ClientFixes;
+import net.asd.union.handler.render.AntiSpawnLag;
+import net.asd.union.handler.render.LazyChunkCache;
+import net.asd.union.handler.render.NoTitle;
 import net.asd.union.ui.client.hud.HUD;
 import net.asd.union.ui.client.hud.element.elements.Notification;
 import net.asd.union.ui.client.hud.element.elements.Type;
@@ -25,6 +29,7 @@ import net.minecraft.client.ClientBrandRetriever;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.client.gui.GuiDownloadTerrain;
+import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.multiplayer.PlayerControllerMP;
 import net.minecraft.client.multiplayer.WorldClient;
 import net.minecraft.client.network.NetHandlerPlayClient;
@@ -38,6 +43,7 @@ import net.minecraft.network.play.client.C19PacketResourcePackStatus;
 import net.minecraft.network.play.server.*;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.WorldSettings;
+import net.minecraft.world.chunk.Chunk;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -122,6 +128,13 @@ public abstract class MixinNetHandlerPlayClient {
         }
     }
 
+    @Inject(method = "handleParticles", at = @At("HEAD"), cancellable = true)
+    private void fdp$cancelAllParticles(S2APacketParticles packetParticles, CallbackInfo ci) {
+        if (NoParticles.shouldBlockAllParticles()) {
+            ci.cancel();
+        }
+    }
+
     @Redirect(method = "handleParticles", at = @At(value = "INVOKE", target = "Lnet/minecraft/network/play/server/S2APacketParticles;getParticleCount()I", ordinal = 1))
     private int onParticleAmount(S2APacketParticles packetParticles) {
         if (AntiExploit.INSTANCE.handleEvents() && AntiExploit.INSTANCE.getLimitParticlesAmount() && packetParticles.getParticleCount() >= 500) {
@@ -191,6 +204,14 @@ public abstract class MixinNetHandlerPlayClient {
         return packet.getGameState();
     }
 
+    @Inject(method = "handleTitle", at = @At("HEAD"), cancellable = true)
+    private void noTitle$cancelServerTitles(S45PacketTitle packetIn, CallbackInfo ci) {
+        if (NoTitle.INSTANCE.getEnabled()) {
+            NoTitle.INSTANCE.clearRenderedTitle();
+            ci.cancel();
+        }
+    }
+
     @Inject(method = "handleResourcePack", at = @At("HEAD"), cancellable = true)
     private void handleResourcePack(final S48PacketResourcePackSend p_handleResourcePack_1_, final CallbackInfo callbackInfo) {
         final String url = p_handleResourcePack_1_.getURL();
@@ -214,6 +235,137 @@ public abstract class MixinNetHandlerPlayClient {
 
                 callbackInfo.cancel();
             }
+        }
+    }
+
+    @Inject(method = "handleChunkData", at = @At("HEAD"), cancellable = true)
+    private void onChunkData(S21PacketChunkData packet, CallbackInfo ci) {
+        if (!LazyChunkCache.INSTANCE.getEnabled() || clientWorldController == null) {
+            return;
+        }
+
+        int chunkX = packet.getChunkX();
+        int chunkZ = packet.getChunkZ();
+        boolean isFullChunk = packet.func_149274_i();
+
+        if (isNearPlayerChunk(chunkX, chunkZ)) {
+            return;
+        }
+
+        if (isFullChunk && packet.getExtractedSize() == 0) {
+            LazyChunkCache.INSTANCE.remove(chunkX, chunkZ);
+            return;
+        }
+
+        if (!isFullChunk || !LazyChunkCache.INSTANCE.contains(chunkX, chunkZ)) {
+            return;
+        }
+
+        Chunk existingChunk = clientWorldController.getChunkFromChunkCoords(chunkX, chunkZ);
+
+        if (existingChunk != null && !existingChunk.getAreLevelsEmpty(0, 255)) {
+            LazyChunkCache.INSTANCE.recordSkip();
+            ci.cancel();
+            return;
+        }
+
+        LazyChunkCache.INSTANCE.remove(chunkX, chunkZ);
+    }
+
+    @Inject(method = "handleChunkData", at = @At("RETURN"))
+    private void cacheChunkAfterLoad(S21PacketChunkData packet, CallbackInfo ci) {
+        if (!LazyChunkCache.INSTANCE.getEnabled() || clientWorldController == null) {
+            return;
+        }
+
+        if (!packet.func_149274_i() || packet.getExtractedSize() == 0) {
+            return;
+        }
+
+        int chunkX = packet.getChunkX();
+        int chunkZ = packet.getChunkZ();
+        Chunk chunk = clientWorldController.getChunkFromChunkCoords(chunkX, chunkZ);
+
+        if (chunk != null && !chunk.getAreLevelsEmpty(0, 255)) {
+            LazyChunkCache.INSTANCE.add(chunkX, chunkZ);
+        }
+    }
+
+    @Inject(method = "handleMapChunkBulk", at = @At("HEAD"), cancellable = true)
+    private void onChunkBulk(S26PacketMapChunkBulk packet, CallbackInfo ci) {
+        if (!LazyChunkCache.INSTANCE.getEnabled() || clientWorldController == null) {
+            return;
+        }
+
+        int chunkCount = packet.getChunkCount();
+        boolean allCached = true;
+
+        for (int index = 0; index < chunkCount; index++) {
+            int chunkX = packet.getChunkX(index);
+            int chunkZ = packet.getChunkZ(index);
+
+            if (isNearPlayerChunk(chunkX, chunkZ)) {
+                allCached = false;
+                continue;
+            }
+
+            if (!LazyChunkCache.INSTANCE.contains(chunkX, chunkZ)) {
+                allCached = false;
+                continue;
+            }
+
+            Chunk existingChunk = clientWorldController.getChunkFromChunkCoords(chunkX, chunkZ);
+            if (existingChunk == null || existingChunk.getAreLevelsEmpty(0, 255)) {
+                allCached = false;
+                LazyChunkCache.INSTANCE.remove(chunkX, chunkZ);
+            }
+        }
+
+        if (allCached) {
+            LazyChunkCache.INSTANCE.recordSkip();
+            ci.cancel();
+        }
+    }
+
+    @Inject(method = "handleMapChunkBulk", at = @At("RETURN"))
+    private void cacheBulkChunksAfterLoad(S26PacketMapChunkBulk packet, CallbackInfo ci) {
+        if (!LazyChunkCache.INSTANCE.getEnabled() || clientWorldController == null) {
+            return;
+        }
+
+        for (int index = 0; index < packet.getChunkCount(); index++) {
+            int chunkX = packet.getChunkX(index);
+            int chunkZ = packet.getChunkZ(index);
+            Chunk chunk = clientWorldController.getChunkFromChunkCoords(chunkX, chunkZ);
+
+            if (chunk != null && !chunk.getAreLevelsEmpty(0, 255)) {
+                LazyChunkCache.INSTANCE.add(chunkX, chunkZ);
+            }
+        }
+    }
+
+    @Inject(method = "handleJoinGame", at = @At("HEAD"))
+    private void clearCacheOnJoin(S01PacketJoinGame packetIn, CallbackInfo ci) {
+        LazyChunkCache.INSTANCE.clear();
+    }
+
+    @Inject(method = "handleRespawn", at = @At("HEAD"))
+    private void clearCacheOnRespawn(S07PacketRespawn packetIn, CallbackInfo ci) {
+        LazyChunkCache.INSTANCE.clear();
+    }
+
+    @Redirect(
+            method = "handleRespawn",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/client/Minecraft;displayGuiScreen(Lnet/minecraft/client/gui/GuiScreen;)V"
+            )
+    )
+    private void antiSpawnLag$skipRespawnLoadingScreen(Minecraft instance, GuiScreen guiScreen) {
+        if (guiScreen instanceof GuiDownloadTerrain && AntiSpawnLag.INSTANCE.consumeTerrainScreenBypass()) {
+            instance.displayGuiScreen(null);
+        } else {
+            instance.displayGuiScreen(guiScreen);
         }
     }
 
@@ -279,5 +431,16 @@ public abstract class MixinNetHandlerPlayClient {
         player.rotationYaw = (rotation.getYaw() + 0.000001f * sign) % 360.0F;
         player.rotationPitch = (rotation.getPitch() + 0.000001f * sign) % 360.0F;
         RotationUtils.INSTANCE.syncRotations();
+    }
+
+    private boolean isNearPlayerChunk(int chunkX, int chunkZ) {
+        if (mc.thePlayer == null) {
+            return false;
+        }
+
+        int playerChunkX = MathHelper.floor_double(mc.thePlayer.posX) >> 4;
+        int playerChunkZ = MathHelper.floor_double(mc.thePlayer.posZ) >> 4;
+
+        return Math.abs(playerChunkX - chunkX) <= 1 && Math.abs(playerChunkZ - chunkZ) <= 1;
     }
 }

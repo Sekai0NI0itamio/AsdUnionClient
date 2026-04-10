@@ -1,0 +1,7 @@
+<ul>
+<li>PLATFORM: Added support for Eclipse 2024-06; you'd get some <code>NoSuchMethodError</code> traces in your logs if using <code>@Builder</code> or <code>@Singular</code> prior to this fix. .</li>
+<li>IMPROBABLE BREAKING CHANGE: Lombok now adds <code>@lombok.Generated</code> by default to methods and types it generates. This may result in accidentally increasing your test coverage percentage. .</li>
+<li>IMPROBABLE BREAKING CHANGE: When <code>lombok.config</code> contains <code>lombok.onX.flagUsage = WARNING</code>, from now on warnings will actually be generated if onX is used.</li>
+<li>BUGFIX: When <code>@SuperBuilder</code> was used on a type with an generic array type, it would error <code>wrong number of type arguments</code>.  .</li>
+<li>FEATURE: Lombok generates javadoc for you for most of the methods it adds; with this release, javadoc is also added to generated constructors. .</li>
+</ul>
