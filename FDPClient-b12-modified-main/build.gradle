@@ -10,11 +10,10 @@ plugins {
 }
 
 repositories {
-    mavenLocal()
     mavenCentral()
     maven { url = "https://maven.minecraftforge.net/" }
     maven { url = "https://repo.spongepowered.org/repository/maven-public/" }
-    maven { url = "https://repo.viaversion.com" }
+    // Retained for Elixir, which is still consumed by the account/login code.
     maven { url = "https://jitpack.io/" }
 }
 
@@ -65,20 +64,13 @@ dependencies {
 
     // Removed suspicious dependency: com.github.half-cambodian-hacker-man:Koffee:d8cee73
 
-    include "com.jagrosh:DiscordIPC:0.4"
-
     include("com.github.CCBlueX:Elixir:1.2.6") {
         exclude module: "kotlin-stdlib"
         exclude module: "authlib"
     }
 
-    include 'org.projectlombok:lombok:1.18.34'
-
-    annotationProcessor 'org.projectlombok:lombok:1.18.34'
-
     // Removed suspicious dependency: com.github.UnlegitMC:Astar3d:bec2291cf2
     include 'com.jhlabs:filters:2.0.235'
-    include "org.apache.httpcomponents:httpmime:4.5.14"
 
     include("org.knowm.xchart:xchart:3.8.8")
 
@@ -89,11 +81,13 @@ dependencies {
     // Kotlin
     include "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
     include "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.3"
+    // Runtime code currently calls Dispatchers.setMain, so this stays until that setup is refactored.
     include "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.3"
 
     include "com.formdev:flatlaf:3.5.4"
 
-    include fileTree(include: ["*.jar"], dir: "libs")
+    // Explicitly package the only known local runtime jar instead of shading any future file dropped in libs/.
+    include files("libs/nashorn.jar")
 }
 
 shadowJar {
@@ -136,7 +130,7 @@ classes.dependsOn(moveResources)
 
 jar {
     manifest.attributes(
-            "FMLCorePlugin": "net.ccbluex.liquidbounce.injection.forge.MixinLoader",
+            "FMLCorePlugin": "net.asd.union.injection.forge.MixinLoader",
             "FMLCorePluginContainsFMLMod": true,
             "ForceLoadAsMod": true,
             "MixinConfigs": "fdpclient.forge.mixins.json",
