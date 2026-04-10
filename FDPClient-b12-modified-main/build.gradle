@@ -1,0 +1,183 @@
+plugins {
+    id "java"
+    id "idea"
+    id "org.jetbrains.kotlin.jvm"
+    id "com.github.johnrengelman.shadow" version "6.1.0"
+    id "net.minecraftforge.gradle.forge"
+    id "org.spongepowered.mixin"
+    id "com.gorylenko.gradle-git-properties" version "2.4.0"
+    id "maven-publish"
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    maven { url = "https://maven.minecraftforge.net/" }
+    maven { url = "https://repo.spongepowered.org/repository/maven-public/" }
+    maven { url = "https://repo.viaversion.com" }
+    maven { url = "https://jitpack.io/" }
+}
+
+archivesBaseName = project.archives_base_name
+version = project.mod_version
+group = project.maven_group
+
+sourceCompatibility = targetCompatibility = 1.8
+compileJava.options.encoding = "UTF-8"
+
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+minecraft {
+    version = "1.8.9-11.15.1.2318-1.8.9"
+    runDir = "run"
+    mappings = "stable_22"
+    makeObfSourceJar = false
+    clientJvmArgs += ["-Dfml.coreMods.load=net.asd.union.injection.forge.MixinLoader", "-Xmx4096m", "-Xms1024m", "-Ddev-mode"]
+}
+
+configurations {
+    include
+    implementation.extendsFrom(include)
+
+    external
+    compile.extendsFrom(external)
+
+    runtimeOnly.canBeResolved = true
+}
+
+dependencies {
+
+    include("org.spongepowered:mixin:0.7.11-SNAPSHOT") {
+        transitive = false
+        exclude module: "guava"
+        exclude module: "commons-io"
+        exclude module: "gson"
+        exclude module: "launchwrapper"
+        exclude module: "log4j-core"
+        exclude module: "slf4j-api"
+    }
+
+    annotationProcessor("org.spongepowered:mixin:0.7.11-SNAPSHOT")
+
+    // Removed suspicious dependency: com.github.half-cambodian-hacker-man:Koffee:d8cee73
+
+    include "com.jagrosh:DiscordIPC:0.4"
+
+    include("com.github.CCBlueX:Elixir:1.2.6") {
+        exclude module: "kotlin-stdlib"
+        exclude module: "authlib"
+    }
+
+    include 'org.projectlombok:lombok:1.18.34'
+
+    annotationProcessor 'org.projectlombok:lombok:1.18.34'
+
+    // Removed suspicious dependency: com.github.UnlegitMC:Astar3d:bec2291cf2
+    include 'com.jhlabs:filters:2.0.235'
+    include "org.apache.httpcomponents:httpmime:4.5.14"
+
+    include("org.knowm.xchart:xchart:3.8.8")
+
+    // HTTP Client
+    include("com.squareup.okhttp3:okhttp:4.10.0") { // for Kotlin 1.6.20
+        exclude module: "kotlin-stdlib"
+    }
+    // Kotlin
+    include "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
+    include "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.3"
+    include "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.3"
+
+    include "com.formdev:flatlaf:3.5.4"
+
+    include fileTree(include: ["*.jar"], dir: "libs")
+}
+
+shadowJar {
+    archiveClassifier.set("")
+    configurations = [project.configurations.include]
+    duplicatesStrategy DuplicatesStrategy.EXCLUDE
+
+    exclude "LICENSE.txt"
+    exclude "module-info.class" // Fix ASM parsing error
+    exclude "**/module-info.class" // Fix ASM parsing error in subdirectories
+
+    exclude "META-INF/maven/**"
+    exclude "META-INF/versions/**"
+
+    exclude "org/apache/log4j/**"
+    exclude "org/apache/commons/**"
+    exclude "org/junit/**"
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mcversion", project.minecraft.version
+
+    filesMatching("mcmod.info") {
+        expand "version": project.version, "mcversion": project.minecraft.version
+    }
+
+    rename "(.+_at.cfg)", "META-INF/\$1"
+}
+
+task moveResources {
+    copy {
+        from "${buildDir}/resources/main"
+        into "${buildDir}/classes/java"
+    }
+}
+
+moveResources.dependsOn(processResources)
+classes.dependsOn(moveResources)
+
+jar {
+    manifest.attributes(
+            "FMLCorePlugin": "net.ccbluex.liquidbounce.injection.forge.MixinLoader",
+            "FMLCorePluginContainsFMLMod": true,
+            "ForceLoadAsMod": true,
+            "MixinConfigs": "fdpclient.forge.mixins.json",
+            "ModSide": "CLIENT",
+            "TweakClass": "org.spongepowered.asm.launch.MixinTweaker",
+            "TweakOrder": "0",
+            "FMLAT": "fdpclient_at.cfg",
+            // "Main-Class": "net.ccbluex.setup.FDPInstructionsKt", // Removed - class does not exist
+    )
+
+    enabled = false
+}
+
+mixin {
+    disableRefMapWarning = true
+    defaultObfuscationEnv searge
+    add sourceSets.main, "fdpclient.mixins.refmap.json"
+}
+
+reobf {
+    shadowJar {
+        mappingType = "SEARGE"
+    }
+}
+jar.dependsOn("shadowJar")
+
+configurations {
+    compileClasspath {
+        attributes.attribute(Attribute.of("org.gradle.jvm.environment", String), "standard-jvm")
+    }
+    include {
+        attributes.attribute(Attribute.of("org.gradle.jvm.environment", String), "standard-jvm")
+    }
+}
+
+tasks.reobfShadowJar.mustRunAfter shadowJar
+tasks.reobfJar.dependsOn(shadowJar)
+
+task copyZipInclude(type: Copy) {
+    from 'zip_include/'
+    into 'build/libs/zip'
+}
+
+build.dependsOn copyZipInclude

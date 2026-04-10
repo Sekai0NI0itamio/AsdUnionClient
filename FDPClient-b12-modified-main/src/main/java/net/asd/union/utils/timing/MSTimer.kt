@@ -1,0 +1,22 @@
+/*
+ * FDPClient Hacked Client
+ * A free open source mixin-based injection hacked client for Minecraft using Minecraft Forge by LiquidBounce.
+ * https://github.com/Itamio/FDPClient/
+ */
+package net.asd.union.utils.timing
+
+class MSTimer {
+    var time = -1L
+
+    fun hasTimePassed(ms: Number) = System.currentTimeMillis() >= time + ms.toLong()
+
+    fun hasTimeLeft(ms: Number) = ms.toLong() + time - System.currentTimeMillis()
+
+    fun reset() {
+        time = System.currentTimeMillis()
+    }
+
+    fun zero() {
+        time = -1L
+    }
+}

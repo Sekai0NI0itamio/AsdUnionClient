@@ -1,0 +1,102 @@
+FDPCLIENT SECURITY AUDIT REPORT
+=================================
+
+Date: January 21, 2026
+Audit Scope: Complete codebase analysis for malicious code
+Project: FDPClient b12 Minecraft Mod
+
+EXECUTIVE SUMMARY
+----------------
+This security audit examined the FDPClient mod codebase for potential malware,
+virus indicators, and malicious code patterns. The mod appears to be a legitimate
+Minecraft client modification with no overt malicious code detected.
+
+However, several security concerns were identified that should be addressed before
+compilation and use.
+
+SECURITY FINDINGS
+-----------------
+
+HIGH RISK ISSUES:
+❌ Suspicious "Main-Class" Reference in build.gradle
+   - Line 151: "Main-Class": "net.ccbluex.setup.FDPInstructionsKt"
+   - This class does NOT exist in the codebase
+   - Could indicate tampering or incomplete modification
+
+MEDIUM RISK ISSUES:
+⚠️ Network Transformer Code
+   - ForgeNetworkTransformer.java manipulates network bytecode
+   - While likely legitimate for mod functionality, this is a powerful capability
+   - Could potentially intercept/modify network traffic
+
+⚠️ External Dependencies from Unverified Sources
+   - Several dependencies come from GitHub repositories:
+     - com.github.half-cambodian-hacker-man:Koffee:d8cee73
+     - com.github.UnlegitMC:Astar3d:bec2291cf2
+   - These are not from official repositories
+
+LOW RISK ISSUES:
+⚠️ Build Scripts Execute Finder/OS Commands
+   - build_mod.sh and build_mod_fast.sh use osascript to open Finder
+   - While likely harmless, this demonstrates system interaction capability
+
+⚠️ Commands with "IRC" Functionality
+   - ChatTokenCommand, ChatAdminCommand, IRCChatCommand
+   - All return "IRC functionality has been removed" messages
+   - Suggests previous network communication features were removed
+
+VERIFIED SAFE COMPONENTS:
+✅ No System Command Execution Found
+   - No calls to System.exec(), Runtime.exec(), or ProcessBuilder
+   - No shell command execution (bash, cmd, powershell)
+
+✅ No Overt Malware Patterns
+   - No file downloading/uploading mechanisms
+   - No keylogging or screen capture code
+   - No credential stealing attempts
+   - No remote access backdoors
+
+✅ Legitimate Minecraft Mod Functionality
+   - Network commands are standard Minecraft client features
+   - RemoteView command is for in-game perspective switching
+   - Connect command is for server connections
+
+DEPENDENCY ANALYSIS
+-------------------
+External repositories used:
+- maven.minecraftforge.net (official Forge)
+- repo.spongepowered.org (official Sponge/Mixin)
+- repo.viaversion.com (ViaVersion proxy)
+- jitpack.io (user-submitted builds - HIGH RISK)
+- mavenCentral() (official Maven)
+
+RISK: jitpack.io contains user-submitted code that may not be vetted.
+
+BUILD SYSTEM ANALYSIS
+--------------------
+- Gradle wrapper uses official gradle.org distribution
+- No suspicious build tasks detected
+- All scripts appear to be legitimate build automation
+
+SECURITY RECOMMENDATIONS
+-----------------------
+1. REMOVE the non-existent Main-Class reference from build.gradle
+2. VERIFY the GitHub dependencies are from legitimate sources
+3. COMPILE in a sandboxed environment first
+4. MONITOR network traffic when first running the mod
+5. CONSIDER using a virtual machine for initial testing
+
+CONCLUSION
+----------
+This FDPClient mod codebase shows no overt malicious code patterns typically
+associated with viruses or malware. However, the suspicious Main-Class reference
+and external dependencies from unverified sources warrant caution.
+
+RECOMMENDED ACTION: 
+- Fix the Main-Class issue before compilation
+- Compile and test in a controlled environment
+- Monitor system behavior during initial use
+
+Risk Level: MODERATE (due to external dependencies and build configuration issues)
+
+END OF SECURITY AUDIT

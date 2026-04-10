@@ -1,0 +1,150 @@
+/*
+ * FDPClient Hacked Client
+ * A free open source mixin-based injection hacked client for Minecraft using Minecraft Forge by LiquidBounce.
+ * https://github.com/Itamio/FDPClient/
+ */
+package net.asd.union.ui.client.gui
+
+import kotlinx.coroutines.launch
+import net.asd.union.FDPClient.IN_DEV
+import net.asd.union.features.module.modules.client.HUDModule.guiColor
+import net.asd.union.ui.font.AWTFontRenderer.Companion.assumeNonVolatile
+import net.asd.union.ui.font.Fonts
+import net.asd.union.utils.io.APIConnectorUtils.performAllChecksAsync
+import net.asd.union.utils.io.MiscUtils
+import net.asd.union.utils.kotlin.SharedScopes
+import net.asd.union.utils.render.RenderUtils.drawBloom
+import net.asd.union.utils.ui.AbstractScreen
+import net.minecraft.client.gui.GuiButton
+import org.lwjgl.input.Keyboard
+import org.lwjgl.opengl.GL11.*
+import java.awt.Color
+
+class GuiUpdate : AbstractScreen() {
+
+    private var isLoading = false
+    private var loadProgress = 0
+    private var errorMessage: String? = null  // Store any error message
+
+    override fun initGui() {
+        val j = height / 4 + 24
+
+            +GuiButton(1, width / 2 + 2, j + 24 * 2, 98, 20, "Ignore")
+            +GuiButton(2, width / 2 - 100, j + 24 * 2, 98, 20, "Go to download page")
+            +GuiButton(3, width / 2 - 49, j + 24 * 3, 98, 20, "Reload API")
+    }
+
+    override fun drawScreen(mouseX: Int, mouseY: Int, partialTicks: Float) = assumeNonVolatile {
+
+        drawBackground(0)
+
+        val messageYPosition = (height / 8f + 60).toInt()
+        val titleYPosition = (height / 16f + 10).toInt()
+
+        val mainMessage = if (!IN_DEV) {
+            "Got released!"
+        } else {
+            "New build available!"
+        }
+        val mainMessageWidth = Fonts.minecraftFont.getStringWidth(mainMessage)
+
+        Fonts.minecraftFont.drawStringWithShadow(
+            mainMessage,
+            (width / 2f - mainMessageWidth / 2),
+            messageYPosition.toFloat(),
+            0xffffff
+        )
+
+        val subMessage = "Press \"Download\" to visit our website or dismiss this message by pressing \"OK\"."
+        val subMessageWidth = Fonts.minecraftFont.getStringWidth(subMessage)
+
+        Fonts.minecraftFont.drawStringWithShadow(
+            subMessage,
+            (width / 2f - subMessageWidth / 2),
+            (messageYPosition + Fonts.minecraftFont.FONT_HEIGHT).toFloat(),
+            0xffffff
+        )
+
+        glPushMatrix()
+        glScalef(2F, 2F, 2F)
+        val titleWidth = Fonts.minecraftFont.getStringWidth("New update available!") / 2
+        Fonts.minecraftFont.drawStringWithShadow(
+            "New update available!",
+            (width / 4f) - titleWidth,
+            titleYPosition / 2f,
+            Color(255, 0, 0).rgb
+        )
+        glPopMatrix()
+
+        if (isLoading) {
+            drawLoadingBar()
+        }
+
+        errorMessage?.let {
+            val errorWidth = Fonts.minecraftFont.getStringWidth(it)
+            Fonts.minecraftFont.drawStringWithShadow(it, (width / 2f - errorWidth / 2), height - 30f, Color.RED.rgb)
+        }
+
+        drawBloom(mouseX - 5, mouseY - 5, 10, 10, 16, Color(guiColor))
+
+        super.drawScreen(mouseX, mouseY, partialTicks)
+    }
+
+    private fun drawLoadingBar() {
+        val barWidth = width / 2
+        val barX = (width - barWidth) / 2
+        val barY = height - 50
+        val filledWidth = (barWidth * (loadProgress / 100.0)).toInt()
+
+        drawRect(barX, barY, barX + barWidth, barY + 10, Color(50, 50, 50, 150).rgb)
+        drawRect(barX, barY, barX + filledWidth, barY + 10, Color(0, 200, 0).rgb)
+
+        val progressText = "$loadProgress%"
+        val textWidth = Fonts.minecraftFont.getStringWidth(progressText)
+        Fonts.minecraftFont.drawStringWithShadow(
+            progressText,
+            (width / 2f - textWidth / 2),
+            (barY - Fonts.minecraftFont.FONT_HEIGHT).toFloat(),
+            0xffffff
+        )
+
+        if (isLoading) {
+            loadProgress += 10
+            if (loadProgress >= 100) {
+                loadProgress = 100
+                isLoading = false
+            }
+        }
+    }
+
+    override fun actionPerformed(button: GuiButton) {
+        when (button.id) {
+            1 -> mc.displayGuiScreen(GuiMainMenu())
+            2 -> MiscUtils.showURL("https://fdpinfo.github.io/download")
+            3 -> {
+                isLoading = true
+                loadProgress = 0
+                errorMessage = null
+
+                SharedScopes.IO.launch {
+                    try {
+                        performAllChecksAsync()
+                    } catch (e: Exception) {
+                        errorMessage = "Failed to reload API: ${e.message}"
+                    } finally {
+                        isLoading = false
+                        loadProgress = 100
+                    }
+                }
+            }
+        }
+    }
+
+    override fun keyTyped(typedChar: Char, keyCode: Int) {
+        if (keyCode == Keyboard.KEY_ESCAPE) {
+            mc.displayGuiScreen(null)
+        } else {
+            super.keyTyped(typedChar, keyCode)
+        }
+    }
+}

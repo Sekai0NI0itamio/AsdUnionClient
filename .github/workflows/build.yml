@@ -1,0 +1,43 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gradle-build:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: FDPClient-b12-modified-main
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Build
+        run: ./gradlew --no-daemon build
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AsdUnionClient-build
+          path: |
+            FDPClient-b12-modified-main/build/libs/*.jar
+            FDPClient-b12-modified-main/build/reports/**
+          if-no-files-found: warn

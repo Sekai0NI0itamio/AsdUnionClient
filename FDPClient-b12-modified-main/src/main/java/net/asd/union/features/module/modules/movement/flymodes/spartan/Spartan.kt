@@ -1,0 +1,32 @@
+/*
+ * FDPClient Hacked Client
+ * A free open source mixin-based injection hacked client for Minecraft using Minecraft Forge by LiquidBounce.
+ * https://github.com/Itamio/FDPClient/
+ */
+package net.asd.union.features.module.modules.movement.flymodes.spartan
+
+import net.asd.union.features.module.modules.movement.flymodes.FlyMode
+import net.asd.union.utils.client.PacketUtils.sendPackets
+import net.asd.union.utils.timing.TickTimer
+import net.minecraft.network.play.client.C03PacketPlayer.C04PacketPlayerPosition
+
+object Spartan : FlyMode("Spartan") {
+	private val timer = TickTimer()
+
+	override fun onEnable() {
+		timer.reset()
+	}
+
+	override fun onUpdate() {
+		mc.thePlayer.motionY = 0.0
+
+		timer.update()
+		if (timer.hasTimePassed(12)) {
+			sendPackets(
+				C04PacketPlayerPosition(mc.thePlayer.posX, mc.thePlayer.posY + 8, mc.thePlayer.posZ, true),
+				C04PacketPlayerPosition(mc.thePlayer.posX, mc.thePlayer.posY - 8, mc.thePlayer.posZ, true)
+			)
+			timer.reset()
+		}
+	}
+}
