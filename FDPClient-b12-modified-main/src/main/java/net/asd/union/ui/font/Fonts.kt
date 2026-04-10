@@ -19,6 +19,8 @@ import net.asd.union.utils.io.extractZipTo
 import net.asd.union.utils.io.jsonArray
 import net.asd.union.utils.io.readJson
 import net.asd.union.utils.io.writeJson
+import net.asd.union.utils.performance.StartupProgress
+import net.asd.union.utils.performance.StartupProgressRenderer
 import net.minecraft.client.gui.FontRenderer
 import java.awt.Font
 import java.io.File
@@ -101,7 +103,10 @@ object Fonts : MinecraftInstance {
         val time = measureTimeMillis {
             try {
                 downloadFonts()
+                val totalSteps = 11
+                var doneSteps = 0
                 register(FontInfo(name = "Minecraft Font"), minecraftFont)
+                tickStartupProgress(++doneSteps, totalSteps)
                 
                 font20 = register(FontInfo(name = "Roboto Medium", size = 20),
                     getFontFromFile("Roboto-Medium.ttf", 20).asGameFontRenderer())
@@ -115,23 +120,27 @@ object Fonts : MinecraftInstance {
                     getFontFromFile("Roboto-Medium.ttf", 72).asGameFontRenderer())
                 fontBold180 = register(FontInfo(name = "Roboto Bold", size = 180),
                     getFontFromFile("Roboto-Bold.ttf", 180).asGameFontRenderer())
+                tickStartupProgress(++doneSteps, totalSteps)
 
                 // SFUI
                 fontSFUI35 = register(FontInfo(name = "sfui", size = 35),
                     getFontFromFile("sfui.ttf", 35).asGameFontRenderer())
                 fontSFUI40 = register(FontInfo(name = "sfui", size = 40),
                     getFontFromFile("sfui.ttf", 40).asGameFontRenderer())
+                tickStartupProgress(++doneSteps, totalSteps)
                 // icons
                 fontIconXD85 = register(FontInfo(name = "iconxd", size = 85),
                     getFontFromFile("iconxd.ttf", 85).asGameFontRenderer())
                 fontNovoAngularIcon85 = register(FontInfo(name = "novoangular", size = 85),
                     getFontFromFile("novoangular.ttf", 85).asGameFontRenderer())
+                tickStartupProgress(++doneSteps, totalSteps)
 
                 ICONFONT_20 = registerCustomFont(FontInfo(name = "ICONFONT", size = 20),
                     getFontFromFile("stylesicons.ttf", 20).asSimpleFontRenderer())
 
                 CheckFont_20 = registerCustomFont(FontInfo(name = "Check Font", size = 20),
                     getFontFromFile("check.ttf", 20).asSimpleFontRenderer())
+                tickStartupProgress(++doneSteps, totalSteps)
 
                 Nursultan15 = registerCustomFont(FontInfo(name = "Nursultan", size = 15),
                     getFontFromFile("Nursultan.ttf", 15).asSimpleFontRenderer())
@@ -143,6 +152,7 @@ object Fonts : MinecraftInstance {
                     getFontFromFile("Nursultan.ttf", 20).asSimpleFontRenderer())
                 Nursultan30 = registerCustomFont(FontInfo(name = "Nursultan", size = 30),
                     getFontFromFile("Nursultan.ttf", 30).asSimpleFontRenderer())
+                tickStartupProgress(++doneSteps, totalSteps)
 
                 InterMedium_14 = registerCustomFont(FontInfo(name = "InterMedium", size = 14),
                     getFontFromFile("Inter_Medium.ttf", 14).asSimpleFontRenderer())
@@ -154,6 +164,7 @@ object Fonts : MinecraftInstance {
                     getFontFromFile("Inter_Medium.ttf", 18).asSimpleFontRenderer())
                 InterMedium_20 = registerCustomFont(FontInfo(name = "InterMedium", size = 20),
                     getFontFromFile("Inter_Medium.ttf", 20).asSimpleFontRenderer())
+                tickStartupProgress(++doneSteps, totalSteps)
 
                 InterBold_15 = registerCustomFont(FontInfo(name = "InterBold", size = 15),
                     getFontFromFile("Inter_Bold.ttf", 15).asSimpleFontRenderer())
@@ -165,6 +176,7 @@ object Fonts : MinecraftInstance {
                     getFontFromFile("Inter_Bold.ttf", 26).asSimpleFontRenderer())
                 InterBold_30 = registerCustomFont(FontInfo(name = "InterBold", size = 30),
                     getFontFromFile("Inter_Bold.ttf", 30).asSimpleFontRenderer())
+                tickStartupProgress(++doneSteps, totalSteps)
 
                 InterRegular_15 = registerCustomFont(FontInfo(name = "InterRegular", size = 15),
                     getFontFromFile("Inter_Regular.ttf", 15).asSimpleFontRenderer())
@@ -172,11 +184,14 @@ object Fonts : MinecraftInstance {
                     getFontFromFile("Inter_Regular.ttf", 35).asSimpleFontRenderer())
                 InterRegular_40 = registerCustomFont(FontInfo(name = "InterRegular", size = 40),
                     getFontFromFile("Inter_Regular.ttf", 40).asSimpleFontRenderer())
+                tickStartupProgress(++doneSteps, totalSteps)
 
                 fontTahomaSmall = register(FontInfo(name = "Tahoma", size = 18),
                     getFontFromFile("Tahoma.ttf", 18).asGameFontRenderer())
+                tickStartupProgress(++doneSteps, totalSteps)
 
                 loadCustomFonts()
+                tickStartupProgress(++doneSteps, totalSteps)
                 
                 LOGGER.info("Successfully initialized all font properties")
             } catch (e: Exception) {
@@ -271,5 +286,10 @@ object Fonts : MinecraftInstance {
 
     private fun Font.asSimpleFontRenderer(): SimpleFontRenderer {
         return SimpleFontRenderer.create(this) as SimpleFontRenderer
+    }
+
+    private fun tickStartupProgress(doneSteps: Int, totalSteps: Int) {
+        StartupProgress.updateSubProgress(doneSteps.toFloat() / totalSteps.toFloat())
+        StartupProgressRenderer.render()
     }
 }

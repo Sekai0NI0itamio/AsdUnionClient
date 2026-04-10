@@ -21,6 +21,8 @@ import net.asd.union.utils.attack.CPSCounter;
 import net.asd.union.utils.client.ClientUtils;
 import net.asd.union.utils.inventory.SilentHotbar;
 import net.asd.union.utils.io.MiscUtils;
+import net.asd.union.utils.performance.StartupProgress;
+import net.asd.union.utils.performance.StartupProgressRenderer;
 import net.asd.union.utils.render.IconUtils;
 import net.asd.union.utils.render.MiniMapRegister;
 import net.asd.union.utils.render.RenderUtils;
@@ -117,6 +119,7 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "startGame", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;checkGLError(Ljava/lang/String;)V", ordinal = 2, shift = At.Shift.AFTER))
     private void startGame(CallbackInfo callbackInfo) throws ExecutionException, InterruptedException {
+        StartupProgressRenderer.render();
         liquidBounce$preloadFuture.get();
 
         FDPClient.INSTANCE.startClient();
@@ -149,6 +152,19 @@ public abstract class MixinMinecraft {
         if (GuiClientConfiguration.Companion.getEnabledClientTitle()) {
             Display.setTitle(FDPClient.INSTANCE.getClientTitle());
         }
+
+        StartupProgressRenderer.setDisplayReady();
+        StartupProgressRenderer.render();
+    }
+
+    @Inject(method = "drawSplashScreen", at = @At("HEAD"), cancellable = true)
+    private void drawStartupSplash(net.minecraft.client.renderer.texture.TextureManager textureManager, CallbackInfo callbackInfo) {
+        if (!StartupProgress.INSTANCE.isActive()) {
+            StartupProgress.INSTANCE.start();
+        }
+
+        StartupProgressRenderer.render();
+        callbackInfo.cancel();
     }
 
     @Inject(method = "displayGuiScreen", at = @At(value = "FIELD", target = "Lnet/minecraft/client/Minecraft;currentScreen:Lnet/minecraft/client/gui/GuiScreen;", shift = At.Shift.AFTER))

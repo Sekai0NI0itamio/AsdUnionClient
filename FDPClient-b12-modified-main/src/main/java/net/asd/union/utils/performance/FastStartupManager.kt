@@ -7,6 +7,7 @@ package net.asd.union.utils.performance
 import net.asd.union.utils.client.ClientUtils.LOGGER
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlin.system.measureTimeMillis
 
 object FastStartupManager {
@@ -19,6 +20,9 @@ object FastStartupManager {
      */
     fun initializeFastStartup() {
         startupStartTime = System.currentTimeMillis()
+        StartupProgress.start()
+        StartupProgress.advanceTo(StartupProgress.STEP_INITIALIZE)
+        StartupProgressRenderer.render()
         
         val time = measureTimeMillis {
             LOGGER.info("=== FDPClient Fast Startup Manager ===")
@@ -56,9 +60,10 @@ object FastStartupManager {
      */
     fun executeOptimizedPreload(): CompletableFuture<Unit> {
         val future = CompletableFuture<Unit>()
-        
         val preloadTime = measureTimeMillis {
             try {
+                StartupProgress.advanceTo(StartupProgress.STEP_PRELOAD)
+                StartupProgressRenderer.render()
                 LOGGER.info("[FastStartup] Starting optimized preload tasks...")
                 
                 // Execute tasks in parallel where possible
@@ -70,9 +75,26 @@ object FastStartupManager {
                     // Language loading will be handled by the optimized loader
                     LOGGER.info("[FastStartup] Language loading prepared")
                 }
-                
-                // Wait for critical tasks
-                CompletableFuture.allOf(fontTask, languageTask).get(15, TimeUnit.SECONDS)
+
+                val preloadFuture = CompletableFuture.allOf(fontTask, languageTask)
+                val preloadDeadline = System.currentTimeMillis() + 15_000L
+
+                while (true) {
+                    val doneCount = listOf(fontTask, languageTask).count { it.isDone }
+                    StartupProgress.updateSubProgress(doneCount / 2f)
+                    StartupProgressRenderer.render()
+
+                    try {
+                        val remaining = preloadDeadline - System.currentTimeMillis()
+                        if (remaining <= 0L) {
+                            throw TimeoutException("Preload task timed out after 15000ms")
+                        }
+
+                        preloadFuture.get(minOf(remaining, 50L), TimeUnit.MILLISECONDS)
+                        break
+                    } catch (_: TimeoutException) {
+                    }
+                }
                 
                 LOGGER.info("[FastStartup] Optimized preload tasks completed")
                 future.complete(Unit)
@@ -91,6 +113,9 @@ object FastStartupManager {
      * Execute optimized client startup
      */
     fun executeOptimizedStartup() {
+        StartupProgress.advanceTo(StartupProgress.STEP_STARTUP)
+        StartupProgressRenderer.render()
+
         val startupTime = measureTimeMillis {
             LOGGER.info("[FastStartup] Starting optimized client startup...")
             
@@ -108,9 +133,8 @@ object FastStartupManager {
                 
                 LOGGER.info("[FastStartup] Optimized startup completed")
                 
-            } catch (e: Exception) {
-                LOGGER.error("[FastStartup] Startup optimization failed: ${e.message}")
-                throw e
+            } catch (t: Throwable) {
+                LOGGER.error("[FastStartup] Startup optimization failed", t)
             }
         }
         
@@ -121,6 +145,9 @@ object FastStartupManager {
      * Load fonts with optimizations
      */
     private fun loadFontsOptimized() {
+        StartupProgress.advanceTo(StartupProgress.STEP_FONTS)
+        StartupProgressRenderer.render()
+
         val fontTime = measureTimeMillis {
             if (StartupOptimizer.useMinimalFonts) {
                 LOGGER.info("[FastStartup] Loading minimal font set for faster startup...")
@@ -142,6 +169,9 @@ object FastStartupManager {
      * Load modules with optimizations
      */
     private fun loadModulesOptimized() {
+        StartupProgress.advanceTo(StartupProgress.STEP_MODULES)
+        StartupProgressRenderer.render()
+
         val moduleTime = measureTimeMillis {
             LOGGER.info("[FastStartup] Loading modules with parallel processing...")
             OptimizedModuleLoader.registerModulesOptimized()
@@ -154,6 +184,7 @@ object FastStartupManager {
      * Complete startup and show statistics
      */
     fun completeStartup() {
+        StartupProgress.advanceTo(StartupProgress.STEP_FINALIZE)
         val totalTime = System.currentTimeMillis() - startupStartTime
         
         LOGGER.info("=== FDPClient Fast Startup Complete ===")
@@ -173,6 +204,8 @@ object FastStartupManager {
         }
         
         LOGGER.info("========================================")
+        StartupProgress.complete()
+        StartupProgressRenderer.render()
     }
     
     /**
