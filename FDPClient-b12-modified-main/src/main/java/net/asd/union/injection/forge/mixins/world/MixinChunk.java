@@ -5,7 +5,6 @@
  */
 package net.asd.union.injection.forge.mixins.world;
 
-import net.asd.union.features.module.modules.visual.ProphuntESP;
 import net.asd.union.utils.render.MiniMapRegister;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.util.BlockPos;
@@ -32,14 +31,6 @@ public class MixinChunk {
     private void setProphuntBlock(BlockPos pos, IBlockState state, final CallbackInfoReturnable callbackInfo) {
         //noinspection ConstantConditions
         MiniMapRegister.INSTANCE.updateChunk((Chunk) ((Object) this));
-
-        final ProphuntESP prophuntESP = ProphuntESP.INSTANCE;
-
-        if (prophuntESP.handleEvents()) {
-            if (prophuntESP.handleEvents()) {
-                prophuntESP.recordBlock(pos);
-            }
-        }
     }
 
     @Inject(method = "onChunkUnload", at = @At("HEAD"))

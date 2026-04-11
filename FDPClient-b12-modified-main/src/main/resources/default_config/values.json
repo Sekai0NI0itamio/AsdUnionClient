@@ -418,7 +418,7 @@
     "DelayMin": 2.97,
     "AntiSpam": true,
     "AttachMessage": true,
-    "AttachText": "\u0026\u0026\u0026\u0026hi\u0026\u0026\u0026\u0026 \u0026\u0026 word \u0026\u0026 hello! \u0026\u0026\u0026 ma\u0026\u0026",
+    "AttachText": "&&&&hi&&&& && word && hello! &&& ma&&",
     "OnlyInGame": true,
     "Hide": false,
     "Reset": false
@@ -592,27 +592,6 @@
     "Custom-Brand": "WTF",
     "Button": "Vanilla",
     "OnlyInGame": false,
-    "Hide": false,
-    "Reset": false
-  },
-  "Breadcrumbs": {
-    "Color": "colorpicker: [0.6, 0.0], hueslider: 0.69934636, opacity: 1.0, rainbow: false",
-    "LineHeight": 0.25,
-    "Temporary": true,
-    "Fade": true,
-    "LifeTime": 1.0,
-    "OnlyInGame": true,
-    "Hide": false,
-    "Reset": false
-  },
-  "CameraView": {
-    "Clip": true,
-    "View": true,
-    "CustomY": 0.0,
-    "SaveLastGroundY": true,
-    "OnScaffold": true,
-    "OnF5": true,
-    "OnlyInGame": true,
     "Hide": false,
     "Reset": false
   },
@@ -804,13 +783,6 @@
     "Delay": 0,
     "HurtTime": 10,
     "Custom-Y": 0.2,
-    "OnlyInGame": true,
-    "Hide": false,
-    "Reset": false
-  },
-  "CustomModel": {
-    "Mode": "Imposter",
-    "RotatePlayer": false,
     "OnlyInGame": true,
     "Hide": false,
     "Reset": false
@@ -1207,15 +1179,6 @@
     "Hide": false,
     "Reset": false
   },
-  "Glint": {
-    "Mode": "Custom",
-    "Red": 255,
-    "Green": 0,
-    "Blue": 0,
-    "OnlyInGame": true,
-    "Hide": false,
-    "Reset": false
-  },
   "GuiClicker": {
     "Delay": 5,
     "OnlyInGame": true,
@@ -1263,12 +1226,6 @@
     "Rainbow": true,
     "Reset": false
   },
-  "HealthWarn": {
-    "Health": 7,
-    "OnlyInGame": true,
-    "Hide": false,
-    "Reset": false
-  },
   "HighJump": {
     "Mode": "Vanilla",
     "Height": 5.0,
@@ -1287,13 +1244,6 @@
     "MobSize": 0.1,
     "TargetAnimals": false,
     "AnimalSize": 0.4,
-    "OnlyInGame": true,
-    "Hide": false,
-    "Reset": false
-  },
-  "HitBubbles": {
-    "Follow Hit": true,
-    "Dynamic Rotation": false,
     "OnlyInGame": true,
     "Hide": false,
     "Reset": false
@@ -1394,14 +1344,6 @@
     "Hide": false,
     "Reset": false
   },
-  "ItemPhysics": {
-    "Realistic": false,
-    "Weight": 0.5,
-    "RotationSpeed": 1.0,
-    "OnlyInGame": true,
-    "Hide": false,
-    "Reset": false
-  },
   "ItemTeleport": {
     "Mode": "New",
     "ResetAfterTP": true,
@@ -1414,15 +1356,6 @@
     "Mode": "NCP",
     "AACFlyMotion": 0.5,
     "NoJump": false,
-    "OnlyInGame": true,
-    "Hide": false,
-    "Reset": false
-  },
-  "JumpCircles": {
-    "Max Time": 3000,
-    "Radius": 2.0,
-    "Texture": "Leeches",
-    "Deepest Light": true,
     "OnlyInGame": true,
     "Hide": false,
     "Reset": false
@@ -1593,7 +1526,7 @@
   "NameProtect": {
     "AllPlayers": false,
     "SkinProtect": true,
-    "FakeName": "\u0026cMe",
+    "FakeName": "&cMe",
     "RandomNames": false,
     "RandomNameLength": false,
     "NameLength": 6,
@@ -2007,20 +1940,6 @@
     "Hide": false,
     "Reset": false
   },
-  "ProphuntESP": {
-    "Mode": "OtherBox",
-    "Glow-Renderscale": 1.0,
-    "Glow-Radius": 4,
-    "Glow-Fade": 10,
-    "Glow-Target-Alpha": 0.0,
-    "Color": "colorpicker: [1.0, 0.0], hueslider: 0.60784316, opacity: 1.0, rainbow: false",
-    "MaxRenderDistance": 50,
-    "OnLook": false,
-    "MaxAngleDifference": 90.0,
-    "ThruBlocks": true,
-    "Hide": false,
-    "Reset": false
-  },
   "Reach": {
     "CombatReach": 400.0,
     "BuildReach": 5.0,
@@ -2091,7 +2010,7 @@
     "Reset": false
   },
   "Scaffold": {
-    "ScaffoldMode": "GodBridge",
+    "ScaffoldMode": "Normal",
     "OmniDirectionalExpand": false,
     "ExpandLength": 1,
     "PlaceDelay": true,
@@ -2114,7 +2033,7 @@
     "WaitForRotations": true,
     "UseOptimizedPitch": true,
     "GodBridgePitch": 73.5,
-    "JumpAutomatically": true,
+    "JumpAutomatically": false,
     "MaxBlocksToJump": 4,
     "MinBlocksToJump": 4,
     "StartHorizontally": true,
@@ -2188,15 +2107,6 @@
     "Mode": "MassiveChunkLoading",
     "Log4JMode": "Chat",
     "SlientInventory": false,
-    "OnlyInGame": true,
-    "Hide": false,
-    "Reset": false
-  },
-  "SilentHotbar": {
-    "KeepHighlightedName": false,
-    "KeepHotbarSlot": false,
-    "KeepItemInHandInFirstPerson": false,
-    "KeepItemInHandInThirdPerson": false,
     "OnlyInGame": true,
     "Hide": false,
     "Reset": false

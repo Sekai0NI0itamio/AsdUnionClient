@@ -7,7 +7,6 @@ package net.asd.union.injection.forge.mixins.render;
 
 import net.asd.union.event.EventManager;
 import net.asd.union.event.UpdateModelEvent;
-import net.asd.union.features.module.modules.visual.CustomModel;
 import net.asd.union.utils.render.RenderUtils;
 import net.minecraft.client.model.ModelBiped;
 import net.minecraft.client.model.ModelBox;
@@ -100,11 +99,6 @@ public class MixinModelPlayerFix extends ModelBiped {
 
     @Inject(method = {"render"}, at = {@At("HEAD")}, cancellable = true)
     public void renderHook(final Entity entityIn, final float limbSwing, final float limbSwingAmount, final float ageInTicks, final float netHeadYaw, final float headPitch, final float scale, final CallbackInfo ci) {
-        final CustomModel customModel = CustomModel.INSTANCE;
-        if (customModel.getState()) {
-            ci.cancel();
-            renderCustom(entityIn, limbSwing, limbSwingAmount, ageInTicks, netHeadYaw, headPitch, scale);
-        }
     }
 
     public void setRotationAngle(final ModelRenderer modelRenderer, final float x, final float y, final float z) {
@@ -331,90 +325,6 @@ public class MixinModelPlayerFix extends ModelBiped {
     }
 
     public void renderCustom(final Entity entityIn, final float limbSwing, final float limbSwingAmount, final float ageInTicks, final float netHeadYaw, final float headPitch, final float scale) {
-        if (left_leg == null) {
-            generatemodel();
-        }
-
-        final CustomModel customModel = CustomModel.INSTANCE;
-        GlStateManager.pushMatrix();
-        if (customModel.getState() && customModel.getMode().contains("Rabbit")) {
-            GlStateManager.pushMatrix();
-            GlStateManager.scale(1.25D, 1.25D, 1.25D);
-            GlStateManager.translate(0.0D, -0.3D, 0.0D);
-            this.rabbitHead.rotateAngleX = this.bipedHead.rotateAngleX;
-            this.rabbitHead.rotateAngleY = this.bipedHead.rotateAngleY;
-            this.rabbitHead.rotateAngleZ = this.bipedHead.rotateAngleZ;
-            this.rabbitLarm.rotateAngleX = this.bipedLeftArm.rotateAngleX;
-            this.rabbitLarm.rotateAngleY = this.bipedLeftArm.rotateAngleY;
-            this.rabbitLarm.rotateAngleZ = this.bipedLeftArm.rotateAngleZ;
-            this.rabbitRarm.rotateAngleX = this.bipedRightArm.rotateAngleX;
-            this.rabbitRarm.rotateAngleY = this.bipedRightArm.rotateAngleY;
-            this.rabbitRarm.rotateAngleZ = this.bipedRightArm.rotateAngleZ;
-            this.rabbitRleg.rotateAngleX = this.bipedRightLeg.rotateAngleX;
-            this.rabbitRleg.rotateAngleY = this.bipedRightLeg.rotateAngleY;
-            this.rabbitRleg.rotateAngleZ = this.bipedRightLeg.rotateAngleZ;
-            this.rabbitLleg.rotateAngleX = this.bipedLeftLeg.rotateAngleX;
-            this.rabbitLleg.rotateAngleY = this.bipedLeftLeg.rotateAngleY;
-            this.rabbitLleg.rotateAngleZ = this.bipedLeftLeg.rotateAngleZ;
-            this.rabbitBone.render(scale);
-            GlStateManager.popMatrix();
-        } else if (customModel.getState() && customModel.getMode().contains("Freddy")) {
-            this.fredhead.rotateAngleX = this.bipedHead.rotateAngleX;
-            this.fredhead.rotateAngleY = this.bipedHead.rotateAngleY;
-            this.fredhead.rotateAngleZ = this.bipedHead.rotateAngleZ;
-            this.armLeft.rotateAngleX = this.bipedLeftArm.rotateAngleX;
-            this.armLeft.rotateAngleY = this.bipedLeftArm.rotateAngleY;
-            this.armLeft.rotateAngleZ = this.bipedLeftArm.rotateAngleZ;
-            this.legRight.rotateAngleX = this.bipedRightLeg.rotateAngleX;
-            this.legRight.rotateAngleY = this.bipedRightLeg.rotateAngleY;
-            this.legRight.rotateAngleZ = this.bipedRightLeg.rotateAngleZ;
-            this.legLeft.rotateAngleX = this.bipedLeftLeg.rotateAngleX;
-            this.legLeft.rotateAngleY = this.bipedLeftLeg.rotateAngleY;
-            this.legLeft.rotateAngleZ = this.bipedLeftLeg.rotateAngleZ;
-            this.armRight.rotateAngleX = this.bipedRightArm.rotateAngleX;
-            this.armRight.rotateAngleY = this.bipedRightArm.rotateAngleY;
-            this.armRight.rotateAngleZ = this.bipedRightArm.rotateAngleZ;
-            GlStateManager.pushMatrix();
-            GlStateManager.scale(0.75, 0.65, 0.75);
-            GlStateManager.translate(0.0, 0.85, 0.0);
-            this.fredbody.render(scale);
-            GlStateManager.popMatrix();
-        } else if (customModel.getState() && customModel.getMode().contains("Imposter")) {
-            this.bipedHead.rotateAngleY = netHeadYaw * 0.017453292F;
-            this.bipedHead.rotateAngleX = headPitch * 0.017453292F;
-            this.bipedBody.rotateAngleY = 0.0F;
-            final float f = 1.0F;
-            this.right_leg.rotateAngleX = MathHelper.cos(limbSwing * 0.6662F) * 1.4F * limbSwingAmount / f;
-            this.left_leg.rotateAngleX = MathHelper.cos(limbSwing * 0.6662F + 3.1415927F) * 1.4F * limbSwingAmount / f;
-            this.right_leg.rotateAngleY = 0.0F;
-            this.left_leg.rotateAngleY = 0.0F;
-            this.right_leg.rotateAngleZ = 0.0F;
-            this.left_leg.rotateAngleZ = 0.0F;
-            final int bodyCustomColor = new Color(197, 16, 17).getRGB();
-            final int eyeCustomColor = new Color(254, 254, 254).getRGB();
-            final int legsCustomColor = new Color(122, 7, 56).getRGB();
-            if (this.isChild) {
-                GlStateManager.scale(0.5F, 0.5F, 0.5F);
-                GlStateManager.translate(0.0F, 24.0F * scale, 0.0F);
-                this.body.render(scale);
-                this.left_leg.render(scale);
-                this.right_leg.render(scale);
-            } else {
-                GlStateManager.translate(0.0D, -0.8D, 0.0D);
-                GlStateManager.scale(1.8D, 1.6D, 1.6D);
-                RenderUtils.INSTANCE.color(bodyCustomColor);
-                GlStateManager.translate(0.0D, 0.15D, 0.0D);
-                this.body.render(scale);
-                RenderUtils.INSTANCE.color(eyeCustomColor);
-                this.eye.render(scale);
-                RenderUtils.INSTANCE.color(legsCustomColor);
-                GlStateManager.translate(0.0D, -0.15D, 0.0D);
-                this.left_leg.render(scale);
-                this.right_leg.render(scale);
-                GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-            }
-        }
-        GlStateManager.popMatrix();
     }
 
     @Inject(method = "setRotationAngles", at = @At("RETURN"))

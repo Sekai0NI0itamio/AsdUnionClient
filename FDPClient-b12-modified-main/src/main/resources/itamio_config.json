@@ -677,33 +677,6 @@
         "Reset": false
       }
     },
-    "Breadcrumbs": {
-      "enabled": false,
-      "values": {
-        "Color": "#8466FF",
-        "LineHeight": 0.25,
-        "Temporary": true,
-        "Fade": true,
-        "LifeTime": 1.0,
-        "OnlyInGame": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
-    "CameraView": {
-      "enabled": false,
-      "values": {
-        "Clip": true,
-        "View": true,
-        "CustomY": 0.0,
-        "SaveLastGroundY": true,
-        "OnScaffold": true,
-        "OnF5": true,
-        "OnlyInGame": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
     "CapeManager": {
       "enabled": false,
       "values": {
@@ -940,16 +913,6 @@
         "Delay": 0,
         "HurtTime": 10,
         "Custom-Y": 0.2,
-        "OnlyInGame": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
-    "CustomModel": {
-      "enabled": false,
-      "values": {
-        "Mode": "Imposter",
-        "RotatePlayer": false,
         "OnlyInGame": true,
         "Hide": false,
         "Reset": false
@@ -1442,18 +1405,6 @@
         "Reset": false
       }
     },
-    "Glint": {
-      "enabled": false,
-      "values": {
-        "Mode": "Custom",
-        "Red": 255,
-        "Green": 0,
-        "Blue": 0,
-        "OnlyInGame": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
     "GuiClicker": {
       "enabled": false,
       "values": {
@@ -1507,15 +1458,6 @@
         "Reset": false
       }
     },
-    "HealthWarn": {
-      "enabled": false,
-      "values": {
-        "Health": 7,
-        "OnlyInGame": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
     "HighJump": {
       "enabled": false,
       "values": {
@@ -1539,16 +1481,6 @@
         "MobSize": 0.1,
         "TargetAnimals": false,
         "AnimalSize": 0.4,
-        "OnlyInGame": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
-    "HitBubbles": {
-      "enabled": false,
-      "values": {
-        "Follow Hit": true,
-        "Dynamic Rotation": false,
         "OnlyInGame": true,
         "Hide": false,
         "Reset": false
@@ -1668,17 +1600,6 @@
         "Reset": false
       }
     },
-    "ItemPhysics": {
-      "enabled": false,
-      "values": {
-        "Realistic": false,
-        "Weight": 0.5,
-        "RotationSpeed": 1.0,
-        "OnlyInGame": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
     "ItemTeleport": {
       "enabled": false,
       "values": {
@@ -1696,18 +1617,6 @@
         "Mode": "NCP",
         "AACFlyMotion": 0.5,
         "NoJump": false,
-        "OnlyInGame": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
-    "JumpCircles": {
-      "enabled": false,
-      "values": {
-        "Max Time": 3000,
-        "Radius": 2.0,
-        "Texture": "Leeches",
-        "Deepest Light": true,
         "OnlyInGame": true,
         "Hide": false,
         "Reset": false
@@ -1926,7 +1835,7 @@
       "values": {
         "AllPlayers": false,
         "SkinProtect": true,
-        "FakeName": "\u0026cMe",
+        "FakeName": "&cMe",
         "RandomNames": false,
         "RandomNameLength": false,
         "NameLength": 6,
@@ -2437,23 +2346,6 @@
         "Reset": false
       }
     },
-    "ProphuntESP": {
-      "enabled": false,
-      "values": {
-        "Mode": "OtherBox",
-        "Glow-Renderscale": 1.0,
-        "Glow-Radius": 4,
-        "Glow-Fade": 10,
-        "Glow-Target-Alpha": 0.0,
-        "Color": "#005AFF",
-        "MaxRenderDistance": 50,
-        "OnLook": false,
-        "MaxAngleDifference": 90.0,
-        "ThruBlocks": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
     "Reach": {
       "enabled": false,
       "values": {
@@ -2547,7 +2439,7 @@
     "Scaffold": {
       "enabled": false,
       "values": {
-        "ScaffoldMode": "GodBridge",
+        "ScaffoldMode": "Normal",
         "OmniDirectionalExpand": false,
         "ExpandLength": 1,
         "PlaceDelay": true,
@@ -2570,7 +2462,7 @@
         "WaitForRotations": true,
         "UseOptimizedPitch": true,
         "GodBridgePitch": 73.5,
-        "JumpAutomatically": true,
+        "JumpAutomatically": false,
         "MaxBlocksToJump": 4,
         "MinBlocksToJump": 4,
         "StartHorizontally": true,
@@ -2650,18 +2542,6 @@
         "Mode": "MassiveChunkLoading",
         "Log4JMode": "Chat",
         "SlientInventory": false,
-        "OnlyInGame": true,
-        "Hide": false,
-        "Reset": false
-      }
-    },
-    "SilentHotbar": {
-      "enabled": false,
-      "values": {
-        "KeepHighlightedName": false,
-        "KeepHotbarSlot": false,
-        "KeepItemInHandInFirstPerson": false,
-        "KeepItemInHandInThirdPerson": false,
         "OnlyInGame": true,
         "Hide": false,
         "Reset": false

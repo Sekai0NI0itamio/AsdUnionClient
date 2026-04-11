@@ -46,10 +46,10 @@ object Scaffold : Module("Scaffold", Category.PLAYER, Keyboard.KEY_V, hideModule
     val scaffoldMode by choices(
         "ScaffoldMode",
         arrayOf("JumpBridge", "Normal", "Rewinside", "Expand", "Telly", "GodBridge"),
-        "JumpBridge"
+        "Normal"
     )
 
-    private val jumpAutomaticallyValue = boolean("JumpAutomatically", true)
+    private val jumpAutomaticallyValue = boolean("JumpAutomatically", false)
     val jumpAutomatically by jumpAutomaticallyValue
 
     private val placeHeight by float("PlaceHeight", 0.18f, 0f..0.42f)
@@ -119,6 +119,9 @@ object Scaffold : Module("Scaffold", Category.PLAYER, Keyboard.KEY_V, hideModule
 
     private val currentRotationsActive: Boolean
         get() = options.rotationMode != "Off"
+
+    private val usesJumpBridgePlacement: Boolean
+        get() = scaffoldMode == "JumpBridge"
 
     val shouldJumpOnInput: Boolean
         get() = !jumpOnUserInput || !mc.gameSettings.keyBindJump.isKeyDown
@@ -214,7 +217,7 @@ object Scaffold : Module("Scaffold", Category.PLAYER, Keyboard.KEY_V, hideModule
     val onStrafe = handler<StrafeEvent> {
         val player = mc.thePlayer ?: return@handler
 
-        if (Tower.isTowering || !shouldStartAutoJump(player)) {
+        if (Tower.isTowering || !usesJumpBridgePlacement || !shouldStartAutoJump(player)) {
             return@handler
         }
 
@@ -361,10 +364,18 @@ object Scaffold : Module("Scaffold", Category.PLAYER, Keyboard.KEY_V, hideModule
             return true
         }
 
+        if (!usesJumpBridgePlacement) {
+            return hasBridgeGap(player) || targetBlockPos?.isReplaceable == true
+        }
+
         return awaitingPlacement && !placedThisJump && !player.onGround
     }
 
     private fun shouldAttemptPlacement(player: EntityPlayerSP): Boolean {
+        if (!usesJumpBridgePlacement) {
+            return shouldGoDown || targetBlockPos != null || hasBridgeGap(player)
+        }
+
         if (placedThisJump) {
             return false
         }
@@ -382,6 +393,10 @@ object Scaffold : Module("Scaffold", Category.PLAYER, Keyboard.KEY_V, hideModule
     }
 
     private fun shouldStartAutoJump(player: EntityPlayerSP): Boolean {
+        if (!usesJumpBridgePlacement) {
+            return false
+        }
+
         if (!jumpAutomatically || shouldGoDown || !player.onGround || !player.isMoving) {
             return false
         }
@@ -427,7 +442,7 @@ object Scaffold : Module("Scaffold", Category.PLAYER, Keyboard.KEY_V, hideModule
     private fun currentTargetY(player: EntityPlayerSP): Int {
         return when {
             shouldGoDown -> floor(player.posY - 1.5).toInt()
-            bridgeStartY > -998.0 -> floor(bridgeStartY - 1.0).toInt()
+            usesJumpBridgePlacement && bridgeStartY > -998.0 -> floor(bridgeStartY - 1.0).toInt()
             sameY && launchY != -999 -> launchY - 1
             else -> floor(player.posY - 1.0).toInt()
         }
@@ -795,5 +810,5 @@ object Scaffold : Module("Scaffold", Category.PLAYER, Keyboard.KEY_V, hideModule
     }
 
     override val tag: String
-        get() = "Jump"
+        get() = scaffoldMode
 }

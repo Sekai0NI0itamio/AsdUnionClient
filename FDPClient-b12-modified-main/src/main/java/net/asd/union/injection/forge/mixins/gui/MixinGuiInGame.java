@@ -9,7 +9,6 @@ import net.asd.union.event.EventManager;
 import net.asd.union.event.Render2DEvent;
 import net.asd.union.features.module.modules.visual.AntiBlind;
 import net.asd.union.features.module.modules.client.HUDModule;
-import net.asd.union.features.module.modules.visual.SilentHotbarModule;
 import net.asd.union.ui.font.AWTFontRenderer;
 import net.asd.union.utils.client.ClassUtils;
 import net.asd.union.utils.inventory.SilentHotbar;
@@ -68,11 +67,7 @@ public abstract class MixinGuiInGame extends Gui {
 
     @Redirect(method = "updateTick", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/player/InventoryPlayer;getCurrentItem()Lnet/minecraft/item/ItemStack;"))
     private ItemStack hookSilentHotbarHighlightedName(InventoryPlayer instance) {
-        SilentHotbarModule module = SilentHotbarModule.INSTANCE;
-
-        int slot = SilentHotbar.INSTANCE.renderSlot(module.handleEvents() && module.getKeepHighlightedName());
-
-        return instance.getStackInSlot(slot);
+        return instance.getStackInSlot(SilentHotbar.INSTANCE.renderSlot(false));
     }
 
     @Inject(method = "renderTooltip", at = @At("HEAD"), cancellable = true)

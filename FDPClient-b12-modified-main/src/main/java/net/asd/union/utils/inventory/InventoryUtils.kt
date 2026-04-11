@@ -7,7 +7,6 @@ package net.asd.union.utils.inventory
 
 import net.asd.union.event.*
 import net.asd.union.features.module.modules.other.NoSlotSet
-import net.asd.union.features.module.modules.visual.SilentHotbarModule
 import net.asd.union.utils.client.MinecraftInstance
 import net.asd.union.utils.client.PacketUtils.sendPacket
 import net.asd.union.utils.extensions.lerpWith
@@ -227,9 +226,7 @@ object InventoryUtils : MinecraftInstance, Listenable {
     }
 
     val onRender3D = handler<Render3DEvent> {
-        val module = SilentHotbarModule
-
-        val slotToUse = SilentHotbar.renderSlot(module.handleEvents() && module.keepHotbarSlot).toFloat()
+        val slotToUse = SilentHotbar.renderSlot(false).toFloat()
 
         lerpedSlot = (lerpedSlot..slotToUse).lerpWith(RenderUtils.deltaTimeNormalized())
     }

@@ -7,7 +7,6 @@ package net.asd.union.injection.forge.mixins.render;
 
 import net.asd.union.features.module.modules.combat.KillAura;
 import net.asd.union.features.module.modules.movement.NoSlow;
-import net.asd.union.features.module.modules.visual.SilentHotbarModule;
 import net.asd.union.utils.inventory.SilentHotbar;
 import net.minecraft.block.Block;
 import net.minecraft.client.entity.EntityPlayerSP;
@@ -47,9 +46,7 @@ public class MixinLayerHeldItem {
      */
     @Overwrite
     public void doRenderLayer(EntityLivingBase entity, float p_177141_2_, float p_177141_3_, float partialTicks, float p_177141_5_, float p_177141_6_, float p_177141_7_, float scale) {
-        SilentHotbarModule module = SilentHotbarModule.INSTANCE;
-
-        int slot = SilentHotbar.INSTANCE.renderSlot(module.handleEvents() && module.getKeepItemInHandInThirdPerson());
+        int slot = SilentHotbar.INSTANCE.renderSlot(false);
 
         ItemStack itemstack = entity instanceof EntityPlayerSP ? ((EntityPlayerSP) entity).inventory.getStackInSlot(slot) : entity.getHeldItem();
 

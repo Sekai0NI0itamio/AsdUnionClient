@@ -478,19 +478,10 @@
     "BlockOverlay": {
       "Settings": false
     },
-    "Breadcrumbs": {
-      "Settings": false
-    },
-    "CameraView": {
-      "Settings": false
-    },
     "Chams": {
       "Settings": false
     },
     "CombatVisuals": {
-      "Settings": false
-    },
-    "CustomModel": {
       "Settings": false
     },
     "ESP": {
@@ -505,22 +496,7 @@
     "Fullbright": {
       "Settings": false
     },
-    "Glint": {
-      "Settings": false
-    },
-    "HealthWarn": {
-      "Settings": false
-    },
-    "HitBubbles": {
-      "Settings": false
-    },
     "ItemESP": {
-      "Settings": false
-    },
-    "ItemPhysics": {
-      "Settings": false
-    },
-    "JumpCircles": {
       "Settings": false
     },
     "KeepTabList": {
@@ -557,12 +533,6 @@
       "Settings": false
     },
     "Projectiles": {
-      "Settings": false
-    },
-    "ProphuntESP": {
-      "Settings": false
-    },
-    "SilentHotbar": {
       "Settings": false
     },
     "StorageESP": {

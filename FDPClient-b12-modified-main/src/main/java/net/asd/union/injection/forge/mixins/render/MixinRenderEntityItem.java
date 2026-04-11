@@ -6,7 +6,6 @@
 package net.asd.union.injection.forge.mixins.render;
 
 import net.asd.union.features.module.modules.visual.Chams;
-import net.asd.union.features.module.modules.visual.ItemPhysics;
 import net.minecraft.client.renderer.block.model.ItemCameraTransforms;
 import net.minecraft.client.renderer.entity.Render;
 import net.minecraft.client.renderer.entity.RenderEntityItem;
@@ -64,8 +63,6 @@ public abstract class MixinRenderEntityItem extends Render<EntityItem> {
      */
     @Overwrite
     private int func_177077_a(EntityItem itemIn, double x, double y, double z, float p_177077_8_, IBakedModel ibakedmodel) {
-        final ItemPhysics itemPhysics = ItemPhysics.INSTANCE;
-
         ItemStack itemStack = itemIn.getEntityItem();
         Item item = itemStack.getItem();
 
@@ -82,21 +79,10 @@ public abstract class MixinRenderEntityItem extends Render<EntityItem> {
 
         float age = (float) itemIn.getAge() + p_177077_8_;
         float hoverStart = itemIn.hoverStart;
-        boolean isPhysicsState = itemPhysics.handleEvents();
-        boolean isRealistic = itemPhysics.getRealistic();
-        float weight = isPhysicsState ? itemPhysics.getWeight() : 0.0f;
-
         float sinValue = sin((age / 10.0F + hoverStart)) * 0.1F + 0.1F;
-        if (isPhysicsState) {
-            sinValue = 0.0f;
-        }
         float scaleY = ibakedmodel.getItemCameraTransforms().getTransform(ItemCameraTransforms.TransformType.GROUND).scale.y;
 
-        if (isPhysicsState) {
-            translate((float)x, (float)y, (float)z);
-        } else {
-            translate((float) x, (float) y + sinValue + yOffset * scaleY, (float) z);
-        }
+        translate((float) x, (float) y + sinValue + yOffset * scaleY, (float) z);
 
         if (isGui3d) {
             translate(0, 0, -0.08);
@@ -106,25 +92,7 @@ public abstract class MixinRenderEntityItem extends Render<EntityItem> {
 
         if (isGui3d || this.renderManager.options != null) {
             float rotationYaw = (age / 20.0F + hoverStart) * (180F / (float) Math.PI);
-
-            rotationYaw *= itemPhysics.getRotationSpeed() * (1.0F + Math.min(age / 360.0F, 1.0F));
-
-            if (isPhysicsState) {
-                if (itemIn.onGround) {
-                    GL11.glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
-                    if (!isRealistic) {
-                        GL11.glRotatef(itemIn.rotationYaw, 0.0f, 0.0f, 1.0f);
-                    } else {
-                        GL11.glRotatef(itemIn.rotationYaw, 0.0f, 1.0f, 0.6f);
-                    }
-                } else {
-                    for (int a = 0; a < 7; ++a) {
-                        GL11.glRotatef(rotationYaw, weight, weight, 1.35f);
-                    }
-                }
-            } else {
-                rotate(rotationYaw, 0.0F, 1.0F, 0.0F);
-            }
+            rotate(rotationYaw, 0.0F, 1.0F, 0.0F);
         }
 
         if (!isGui3d) {

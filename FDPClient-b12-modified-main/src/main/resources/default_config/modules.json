@@ -209,16 +209,6 @@
     "KeyBind": 0,
     "Array": true
   },
-  "Breadcrumbs": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
-  "CameraView": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
   "CapeManager": {
     "State": false,
     "KeyBind": 0,
@@ -275,11 +265,6 @@
     "Array": true
   },
   "Criticals": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
-  "CustomModel": {
     "State": false,
     "KeyBind": 0,
     "Array": true
@@ -429,11 +414,6 @@
     "KeyBind": 0,
     "Array": true
   },
-  "Glint": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
   "GuiClicker": {
     "State": false,
     "KeyBind": 0,
@@ -444,22 +424,12 @@
     "KeyBind": 0,
     "Array": false
   },
-  "HealthWarn": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
   "HighJump": {
     "State": false,
     "KeyBind": 0,
     "Array": true
   },
   "HitBox": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
-  "HitBubbles": {
     "State": false,
     "KeyBind": 0,
     "Array": true
@@ -494,22 +464,12 @@
     "KeyBind": 0,
     "Array": true
   },
-  "ItemPhysics": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
   "ItemTeleport": {
     "State": false,
     "KeyBind": 0,
     "Array": true
   },
   "Jesus": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
-  "JumpCircles": {
     "State": false,
     "KeyBind": 0,
     "Array": true
@@ -719,11 +679,6 @@
     "KeyBind": 0,
     "Array": true
   },
-  "ProphuntESP": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
   "Reach": {
     "State": false,
     "KeyBind": 0,
@@ -765,11 +720,6 @@
     "Array": true
   },
   "ServerCrasher": {
-    "State": false,
-    "KeyBind": 0,
-    "Array": true
-  },
-  "SilentHotbar": {
     "State": false,
     "KeyBind": 0,
     "Array": true

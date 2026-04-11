@@ -7,8 +7,6 @@ package net.asd.union.injection.forge.mixins.render;
 
 import net.asd.union.features.module.modules.combat.KillAura;
 import net.asd.union.features.module.modules.movement.NoSlow;
-import net.asd.union.features.module.modules.visual.CustomModel;
-import net.asd.union.features.module.modules.visual.SilentHotbarModule;
 import net.asd.union.utils.io.APIConnectorUtils;
 import net.asd.union.utils.inventory.SilentHotbar;
 import net.minecraft.client.entity.AbstractClientPlayer;
@@ -45,9 +43,7 @@ public abstract class MixinRenderPlayer {
             modelplayer.bipedHead.showModel = true;
             modelplayer.bipedHeadwear.showModel = true;
         } else {
-            SilentHotbarModule module = SilentHotbarModule.INSTANCE;
-
-            int slot = SilentHotbar.INSTANCE.renderSlot(module.handleEvents() && module.getKeepItemInHandInThirdPerson());
+            int slot = SilentHotbar.INSTANCE.renderSlot(false);
 
             ItemStack itemstack = entity instanceof EntityPlayerSP ? entity.inventory.getStackInSlot(slot) : entity.getHeldItem();
 
@@ -80,21 +76,5 @@ public abstract class MixinRenderPlayer {
 
     @Inject(method = {"getEntityTexture"}, at = {@At("HEAD")}, cancellable = true)
     public void getEntityTexture(AbstractClientPlayer entity, CallbackInfoReturnable<ResourceLocation> ci) {
-        final CustomModel customModel = CustomModel.INSTANCE;
-        final ResourceLocation rabbit = APIConnectorUtils.INSTANCE.callImage("rabbit", "models");
-        final ResourceLocation fred = APIConnectorUtils.INSTANCE.callImage("freddy", "models");
-        final ResourceLocation imposter = APIConnectorUtils.INSTANCE.callImage("imposter", "models");
-
-        if (customModel.getState()) {
-            if (customModel.getMode().contains("Rabbit")) {
-                ci.setReturnValue(rabbit);
-            }
-            if (customModel.getMode().contains("Freddy")) {
-                ci.setReturnValue(fred);
-            }
-            if (customModel.getMode().contains("Imposter")) {
-                ci.setReturnValue(imposter);
-            }
-        }
     }
 }

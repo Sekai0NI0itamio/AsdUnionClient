@@ -9,11 +9,13 @@ import net.asd.union.config.boolean
 import net.asd.union.config.choices
 import net.asd.union.config.float
 import net.asd.union.config.intRange
+import net.asd.union.event.MovementInputEvent
 import net.asd.union.event.UpdateEvent
 import net.asd.union.event.handler
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
 import net.asd.union.utils.extensions.fixedSensitivityYaw
+import net.asd.union.utils.extensions.reset
 import net.asd.union.utils.extensions.sendUseItem
 import net.asd.union.utils.extensions.setSprintSafely
 import net.asd.union.utils.extensions.tryJump
@@ -87,6 +89,24 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         }
 
         applyCircleMovement(player)
+    }
+
+    val onMovementInput = handler<MovementInputEvent> { event ->
+        val player = mc.thePlayer ?: return@handler
+
+        if (mc.theWorld == null || player.isDead || mc.currentScreen != null) {
+            return@handler
+        }
+
+        if (isPaused) {
+            event.originalInput.reset()
+            return@handler
+        }
+
+        event.originalInput.moveForward = 1f
+        event.originalInput.moveStrafe = if (strafeRight) 1f else -1f
+        event.originalInput.jump = jump && player.onGround
+        event.originalInput.sneak = false
     }
 
     override fun onEnable() {
