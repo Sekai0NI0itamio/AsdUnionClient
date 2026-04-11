@@ -6,8 +6,6 @@
 package net.asd.union.features.module.modules.player.scaffolds
 
 import net.asd.union.event.*
-import net.asd.union.features.module.modules.movement.Flight
-import net.asd.union.features.module.modules.movement.Speed
 import net.asd.union.features.module.modules.player.scaffolds.Scaffold.searchMode
 import net.asd.union.features.module.modules.player.scaffolds.Scaffold.shouldGoDown
 import net.asd.union.utils.client.MinecraftInstance
@@ -129,8 +127,6 @@ object Tower : MinecraftInstance, Listenable {
             if (towerModeValues.get() == "None" || towerModeValues.get() == "Jump")
                 return@handler
             if (notOnMoveValues.get() && mc.thePlayer.isMoving)
-                return@handler
-            if (Speed.state || Flight.state)
                 return@handler
             event.cancelEvent()
         }
