@@ -22,6 +22,7 @@ import static org.objectweb.asm.Opcodes.*;
  * @class jdk/internal/dynalink/beans/AbstractJavaLinker
  */
 public class AbstractJavaLinkerTransformer implements IClassTransformer {
+    private static final String HANDLER_OWNER = "net/asd/union/script/remapper/injection/transformers/handlers/AbstractJavaLinkerHandler";
 
     /**
      * Transform a class
@@ -45,7 +46,7 @@ public class AbstractJavaLinkerTransformer implements IClassTransformer {
                                     new FieldInsnNode(GETFIELD, "jdk/internal/dynalink/beans/AbstractJavaLinker", "clazz", "Ljava/lang/Class;"),
                                     new VarInsnNode(ALOAD, 1),
                                     new VarInsnNode(ALOAD, 2),
-                                    new MethodInsnNode(INVOKESTATIC, "net/ccbluex/liquidbounce/script/remapper/injection/transformers/handlers/AbstractJavaLinkerHandler", "addMember", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/reflect/AccessibleObject;)Ljava/lang/String;", false),
+                                    new MethodInsnNode(INVOKESTATIC, HANDLER_OWNER, "addMember", "(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/reflect/AccessibleObject;)Ljava/lang/String;", false),
                                     new VarInsnNode(ASTORE, 1)
                             ));
                             break;
@@ -54,7 +55,7 @@ public class AbstractJavaLinkerTransformer implements IClassTransformer {
                                     new VarInsnNode(ALOAD, 0),
                                     new FieldInsnNode(GETFIELD, "jdk/internal/dynalink/beans/AbstractJavaLinker", "clazz", "Ljava/lang/Class;"),
                                     new VarInsnNode(ALOAD, 1),
-                                    new MethodInsnNode(INVOKESTATIC, "net/ccbluex/liquidbounce/script/remapper/injection/transformers/handlers/AbstractJavaLinkerHandler", "addMember", "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/String;", false),
+                                    new MethodInsnNode(INVOKESTATIC, HANDLER_OWNER, "addMember", "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/String;", false),
                                     new VarInsnNode(ASTORE, 1)
                             ));
                             break;
@@ -63,7 +64,7 @@ public class AbstractJavaLinkerTransformer implements IClassTransformer {
                                     new VarInsnNode(ALOAD, 0),
                                     new FieldInsnNode(GETFIELD, "jdk/internal/dynalink/beans/AbstractJavaLinker", "clazz", "Ljava/lang/Class;"),
                                     new VarInsnNode(ALOAD, 1),
-                                    new MethodInsnNode(INVOKESTATIC, "net/ccbluex/liquidbounce/script/remapper/injection/transformers/handlers/AbstractJavaLinkerHandler", "setPropertyGetter", "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/String;", false),
+                                    new MethodInsnNode(INVOKESTATIC, HANDLER_OWNER, "setPropertyGetter", "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/String;", false),
                                     new VarInsnNode(ASTORE, 1)
                             ));
                             break;

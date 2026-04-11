@@ -18,6 +18,7 @@ import static org.objectweb.asm.Opcodes.*;
  * Transform bytecode of classes
  */
 public class ForgeNetworkTransformer implements IClassTransformer {
+    private static final String TRANSFORMER_OWNER = "net/asd/union/injection/transformers/ForgeNetworkTransformer";
 
     /**
      * Transform a class
@@ -37,7 +38,7 @@ public class ForgeNetworkTransformer implements IClassTransformer {
                     final LabelNode labelNode = new LabelNode();
 
                     methodNode.instructions.insertBefore(methodNode.instructions.getFirst(), NodeUtils.INSTANCE.toNodes(
-                            new MethodInsnNode(INVOKESTATIC, "net/ccbluex/liquidbounce/injection/transformers/ForgeNetworkTransformer", "returnMethod", "()Z", false),
+                            new MethodInsnNode(INVOKESTATIC, TRANSFORMER_OWNER, "returnMethod", "()Z", false),
                             new JumpInsnNode(IFEQ, labelNode),
                             new InsnNode(ICONST_0),
                             new InsnNode(IRETURN),
@@ -60,7 +61,7 @@ public class ForgeNetworkTransformer implements IClassTransformer {
 
                     methodNode.instructions.insertBefore(methodNode.instructions.getFirst(), NodeUtils.INSTANCE.toNodes(
                             new MethodInsnNode(INVOKESTATIC,
-                                    "net/ccbluex/liquidbounce/injection/transformers/ForgeNetworkTransformer",
+                                    TRANSFORMER_OWNER,
                                     "returnMethod", "()Z", false
                             ),
                             new JumpInsnNode(IFEQ, labelNode),
