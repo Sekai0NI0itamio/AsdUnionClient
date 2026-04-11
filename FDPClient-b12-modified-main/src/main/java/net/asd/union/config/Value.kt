@@ -5,6 +5,7 @@
  */
 package net.asd.union.config
 
+import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonPrimitive
@@ -301,6 +302,27 @@ open class TextValue(
     override fun fromJsonF(element: JsonElement) = if (element.isJsonPrimitive) element.asString else null
 }
 
+open class TextListValue(
+    name: String,
+    value: List<String>,
+    subjective: Boolean = false,
+    isSupported: (() -> Boolean)? = null,
+) : Value<List<String>>(name, value, subjective, isSupported) {
+
+    override fun toJsonF(): JsonElement = JsonArray().apply {
+        value.forEach { add(JsonPrimitive(it)) }
+    }
+
+    override fun fromJsonF(element: JsonElement): List<String>? = when {
+        element.isJsonArray -> element.asJsonArray.mapNotNull { entry ->
+            entry.takeIf { it.isJsonPrimitive }?.asString
+        }
+
+        element.isJsonPrimitive -> element.asString.takeIf { it.isNotBlank() }?.let(::listOf) ?: emptyList()
+        else -> null
+    }
+}
+
 /**
  * Font value represents a value with a font
  */
@@ -506,6 +528,10 @@ fun font(
 fun text(
     name: String, value: String, subjective: Boolean = false, isSupported: (() -> Boolean)? = null
 ) = TextValue(name, value, subjective, isSupported)
+
+fun textList(
+    name: String, value: List<String>, subjective: Boolean = false, isSupported: (() -> Boolean)? = null
+) = TextListValue(name, value, subjective, isSupported)
 
 fun boolean(
     name: String, value: Boolean, subjective: Boolean = false, isSupported: (() -> Boolean)? = null

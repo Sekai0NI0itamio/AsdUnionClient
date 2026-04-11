@@ -77,6 +77,7 @@ def kotlinCompilerClasspath = files(
 def kotlinPatchSourceDir = file('src/main/kotlin')
 def defaultKotlinPatchFiles = files(
     fileTree(dir: kotlinPatchSourceDir, include: '**/*.kt'),
+    file('FDPClient-b12-modified-main/src/main/java/net/asd/union/features/module/modules/player/scaffolds/Scaffold.kt'),
     file('FDPClient-b12-modified-main/src/main/java/net/asd/union/features/module/modules/player/scaffolds/Tower.kt'),
     file('FDPClient-b12-modified-main/src/main/java/net/asd/union/features/module/modules/movement/Sprint.kt')
 )

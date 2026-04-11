@@ -5,131 +5,224 @@
  */
 package net.asd.union.features.module.modules.player
 
-
-import net.asd.union.event.UpdateEvent
-import net.asd.union.features.module.Category
-import net.asd.union.features.module.Module
-import net.asd.union.utils.extensions.fixedSensitivityPitch
-import net.asd.union.utils.extensions.fixedSensitivityYaw
-import net.asd.union.utils.extensions.tryJump
-import net.asd.union.utils.kotlin.RandomUtils.nextFloat
-import net.asd.union.utils.kotlin.RandomUtils.nextInt
-import net.asd.union.utils.timing.MSTimer
 import net.asd.union.config.boolean
 import net.asd.union.config.choices
 import net.asd.union.config.float
-import net.asd.union.config.int
+import net.asd.union.config.intRange
+import net.asd.union.event.UpdateEvent
 import net.asd.union.event.handler
-import net.minecraft.client.settings.GameSettings
+import net.asd.union.features.module.Category
+import net.asd.union.features.module.Module
+import net.asd.union.utils.extensions.fixedSensitivityYaw
+import net.asd.union.utils.extensions.sendUseItem
+import net.asd.union.utils.extensions.setSprintSafely
+import net.asd.union.utils.extensions.tryJump
+import net.asd.union.utils.kotlin.RandomUtils.nextBoolean
+import net.asd.union.utils.kotlin.RandomUtils.nextInt
+import net.asd.union.utils.movement.MovementUtils.updateControls
 
 object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideModule = false) {
 
-    private val mode by choices("Mode", arrayOf("Old", "Random", "Custom"), "Random")
+    private val direction by choices("Direction", arrayOf("Left", "Right", "Swap"), "Swap")
+    private val yawStep by float("YawStep", 6.5f, 0.5f..30f, "deg")
+    private val jump by boolean("Jump", true)
+    private val sprint by boolean("Sprint", true)
 
-    private val rotateValue = boolean("Rotate", true) { mode == "Custom" }
-    private val rotationDelay by int("RotationDelay", 100, 0..1000) { rotateValue.isActive() }
-    private val rotationAngle by float("RotationAngle", 1f, -180F..180F) { rotateValue.isActive() }
+    private val switchItemsValue = boolean("SwitchItems", true)
+    private val switchItems by switchItemsValue
+    private val switchDelay by intRange("SwitchDelay", 3500..7000, 250..30000, "ms") { switchItemsValue.isActive() }
 
-    private val swingValue = boolean("Swing", true) { mode == "Custom" }
-    private val swingDelay by int("SwingDelay", 100, 0..1000) { swingValue.isActive() }
+    private val pauseValue = boolean("Pause", true)
+    private val pause by pauseValue
+    private val pauseEvery by intRange("PauseEvery", 15000..30000, 1000..120000, "ms") { pauseValue.isActive() }
+    private val pauseDuration by intRange("PauseDuration", 5000..10000, 1000..30000, "ms") { pauseValue.isActive() }
 
-    private val jump by boolean("Jump", true) { mode == "Custom" }
-    private val move by boolean("Move", true) { mode == "Custom" }
+    private val clickMode by choices("ClickMode", arrayOf("Off", "Left", "Right", "Random"), "Random")
+    private val clicksAfterPause by intRange("ClicksAfterPause", 1..2, 1..5) { clickMode != "Off" }
+    private val clickDelay by intRange("ClickDelay", 200..450, 50..2000, "ms") { clickMode != "Off" }
 
-    private var shouldMove = false
-    private var randomTimerDelay = 500L
-
-    private val swingDelayTimer = MSTimer()
-    private val delayTimer = MSTimer()
-
+    private var strafeRight = false
+    private var isPaused = false
+    private var pauseUntil = 0L
+    private var nextPauseAt = 0L
+    private var nextSwitchAt = 0L
+    private var pendingClicks = 0
+    private var nextClickAt = 0L
 
     val onUpdate = handler<UpdateEvent> {
-        val thePlayer = mc.thePlayer ?: return@handler
+        val player = mc.thePlayer ?: return@handler
 
-        when (mode.lowercase()) {
-            "old" -> {
-                mc.gameSettings.keyBindForward.pressed = true
+        if (mc.theWorld == null || player.isDead || mc.currentScreen != null) {
+            resetInputs()
+            return@handler
+        }
 
-                if (delayTimer.hasTimePassed(500)) {
-                    thePlayer.fixedSensitivityYaw += 180F
-                    delayTimer.reset()
-                }
+        val now = System.currentTimeMillis()
+        updateSchedules(now)
+
+        if (isPaused) {
+            if (now >= pauseUntil) {
+                finishPause(now)
+            } else {
+                applyStoppedState(player)
+                return@handler
             }
+        }
 
-            "random" -> {
-                getRandomMoveKeyBind().pressed = shouldMove
+        if (pause && nextPauseAt > 0L && now >= nextPauseAt) {
+            startPause(now)
+            applyStoppedState(player)
+            return@handler
+        }
 
-                if (!delayTimer.hasTimePassed(randomTimerDelay)) return@handler
-                shouldMove = false
-                randomTimerDelay = 500L
-                when (nextInt(0, 6)) {
-                    0 -> {
-                        if (thePlayer.onGround) thePlayer.tryJump()
-                        delayTimer.reset()
-                    }
+        if (switchItems && nextSwitchAt > 0L && now >= nextSwitchAt) {
+            switchHotbarSlot()
+            nextSwitchAt = now + randomDelay(switchDelay)
+        }
 
-                    1 -> {
-                        if (!thePlayer.isSwingInProgress) thePlayer.swingItem()
-                        delayTimer.reset()
-                    }
+        if (pendingClicks > 0 && now >= nextClickAt) {
+            performClick()
+            pendingClicks--
+            nextClickAt = if (pendingClicks > 0) now + randomDelay(clickDelay) else 0L
+        }
 
-                    2 -> {
-                        randomTimerDelay = nextInt(0, 1000).toLong()
-                        shouldMove = true
-                        delayTimer.reset()
-                    }
+        applyCircleMovement(player)
+    }
 
-                    3 -> {
-                        thePlayer.inventory.currentItem = nextInt(0, 9)
-                        mc.playerController.syncCurrentPlayItem()
-                        delayTimer.reset()
-                    }
+    override fun onEnable() {
+        val now = System.currentTimeMillis()
 
-                    4 -> {
-                        thePlayer.fixedSensitivityYaw += nextFloat(-180f, 180f)
-                        delayTimer.reset()
-                    }
+        strafeRight = when (direction.lowercase()) {
+            "right" -> true
+            "left" -> false
+            else -> nextBoolean()
+        }
 
-                    5 -> {
-                        thePlayer.fixedSensitivityPitch += nextFloat(-10f, 10f)
-                        delayTimer.reset()
-                    }
-                }
-            }
+        isPaused = false
+        pauseUntil = 0L
+        pendingClicks = 0
+        nextClickAt = 0L
+        nextPauseAt = if (pause) now + randomDelay(pauseEvery) else 0L
+        nextSwitchAt = if (switchItems) now + randomDelay(switchDelay) else 0L
+    }
 
-            "custom" -> {
-                if (move)
-                    mc.gameSettings.keyBindForward.pressed = true
+    override fun onDisable() {
+        isPaused = false
+        pauseUntil = 0L
+        pendingClicks = 0
+        nextClickAt = 0L
+        nextPauseAt = 0L
+        nextSwitchAt = 0L
+        resetInputs()
+    }
 
-                if (jump && thePlayer.onGround)
-                    thePlayer.tryJump()
+    private fun updateSchedules(now: Long) {
+        if (!pause) {
+            isPaused = false
+            pauseUntil = 0L
+            nextPauseAt = 0L
+        } else if (!isPaused && nextPauseAt == 0L) {
+            nextPauseAt = now + randomDelay(pauseEvery)
+        }
 
-                if (rotateValue.get() && delayTimer.hasTimePassed(rotationDelay)) {
-                    thePlayer.fixedSensitivityYaw += rotationAngle
-                    thePlayer.fixedSensitivityPitch += nextFloat(0F, 1F) * 2 - 1
-                    delayTimer.reset()
-                }
+        if (!switchItems) {
+            nextSwitchAt = 0L
+        } else if (nextSwitchAt == 0L) {
+            nextSwitchAt = now + randomDelay(switchDelay)
+        }
 
-                if (swingValue.get() && !thePlayer.isSwingInProgress && swingDelayTimer.hasTimePassed(swingDelay)) {
-                    thePlayer.swingItem()
-                    swingDelayTimer.reset()
-                }
-            }
+        if (clickMode.equals("Off", ignoreCase = true)) {
+            pendingClicks = 0
+            nextClickAt = 0L
         }
     }
 
-    private val moveKeyBindings =
-        arrayOf(
-            mc.gameSettings.keyBindForward,
-            mc.gameSettings.keyBindLeft,
-            mc.gameSettings.keyBindBack,
-            mc.gameSettings.keyBindRight
-        )
+    private fun startPause(now: Long) {
+        isPaused = true
+        pauseUntil = now + randomDelay(pauseDuration)
+    }
 
-    private fun getRandomMoveKeyBind() = moveKeyBindings.random()
+    private fun finishPause(now: Long) {
+        isPaused = false
+        pauseUntil = 0L
+        nextPauseAt = if (pause) now + randomDelay(pauseEvery) else 0L
 
-    override fun onDisable() {
-        if (!GameSettings.isKeyDown(mc.gameSettings.keyBindForward))
-            mc.gameSettings.keyBindForward.pressed = false
+        if (direction.equals("Swap", ignoreCase = true)) {
+            strafeRight = !strafeRight
+        }
+
+        if (!clickMode.equals("Off", ignoreCase = true)) {
+            pendingClicks = randomInt(clicksAfterPause)
+            nextClickAt = if (pendingClicks > 0) now + randomDelay(clickDelay) else 0L
+        }
+    }
+
+    private fun applyCircleMovement(player: net.minecraft.client.entity.EntityPlayerSP) {
+        mc.gameSettings.keyBindForward.pressed = true
+        mc.gameSettings.keyBindBack.pressed = false
+        mc.gameSettings.keyBindLeft.pressed = !strafeRight
+        mc.gameSettings.keyBindRight.pressed = strafeRight
+        mc.gameSettings.keyBindJump.pressed = false
+        mc.gameSettings.keyBindSprint.pressed = sprint
+
+        player setSprintSafely sprint
+
+        if (jump && player.onGround) {
+            player.tryJump()
+        }
+
+        player.fixedSensitivityYaw += if (strafeRight) yawStep else -yawStep
+    }
+
+    private fun applyStoppedState(player: net.minecraft.client.entity.EntityPlayerSP) {
+        mc.gameSettings.keyBindForward.pressed = false
+        mc.gameSettings.keyBindBack.pressed = false
+        mc.gameSettings.keyBindLeft.pressed = false
+        mc.gameSettings.keyBindRight.pressed = false
+        mc.gameSettings.keyBindJump.pressed = false
+        mc.gameSettings.keyBindSprint.pressed = false
+
+        player setSprintSafely false
+    }
+
+    private fun switchHotbarSlot() {
+        val player = mc.thePlayer ?: return
+        val filledSlots = (0..8).filter { player.inventory.getStackInSlot(it) != null }
+        val availableSlots = (filledSlots.ifEmpty { (0..8).toList() }).filter { it != player.inventory.currentItem }
+
+        if (availableSlots.isEmpty()) {
+            return
+        }
+
+        player.inventory.currentItem = availableSlots[nextInt(0, availableSlots.size)]
+        mc.playerController?.syncCurrentPlayItem()
+    }
+
+    private fun performClick() {
+        val player = mc.thePlayer ?: return
+
+        when (resolveClickMode()) {
+            "left" -> mc.clickMouse()
+            "right" -> player.heldItem?.let(player::sendUseItem)
+        }
+    }
+
+    private fun resolveClickMode(): String {
+        return when (clickMode.lowercase()) {
+            "random" -> if (nextBoolean()) "left" else "right"
+            else -> clickMode.lowercase()
+        }
+    }
+
+    private fun randomDelay(range: IntRange): Long = randomInt(range).toLong()
+
+    private fun randomInt(range: IntRange): Int = nextInt(range.first, range.last + 1)
+
+    private fun resetInputs() {
+        updateControls()
+
+        mc.thePlayer?.let {
+            it setSprintSafely mc.gameSettings.keyBindSprint.isKeyDown
+        }
     }
 }

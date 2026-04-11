@@ -19,6 +19,7 @@ import net.asd.union.features.module.modules.client.ClickGUIModule.scrolls
 import net.asd.union.features.module.modules.client.HUDModule.guiColor
 import net.asd.union.file.FileManager.clickGuiConfig
 import net.asd.union.file.FileManager.saveConfig
+import net.asd.union.file.FileManager.valuesConfig
 import net.asd.union.ui.client.clickgui.elements.ButtonElement
 import net.asd.union.ui.client.clickgui.elements.ModuleElement
 import net.asd.union.ui.client.clickgui.style.Style
@@ -289,10 +290,11 @@ object ClickGui : GuiScreen() {
                         activeTextValue.set("", false) // Don't save the empty value immediately
                     } else if (currentValue.isNotEmpty() && currentValue.isNotBlank() && activeTextValue.name == "AddMessage") {
                         // Add the message directly through the AutoText module
-                        net.asd.union.features.module.modules.other.AutoText.addMessage(currentValue.trim())
+                        net.asd.union.features.module.modules.other.AutoText.addMessage(currentValue.trim(), false)
 
                         // Clear the input field after adding the message
                         activeTextValue.set("", false) // Don't save the empty value immediately
+                        saveConfig(valuesConfig)
                     } else if (activeTextValue.name != "AddFriend" && activeTextValue.name != "AddMessage") {
                         // For other TextValues, just save the value normally
                         activeTextValue.set(currentValue.trim(), true) // Force save immediately

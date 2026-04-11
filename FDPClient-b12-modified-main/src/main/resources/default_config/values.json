@@ -93,14 +93,18 @@
     "Reset": false
   },
   "AntiAFK": {
-    "Mode": "Random",
-    "Rotate": true,
-    "RotationDelay": 100,
-    "RotationAngle": 1.0,
-    "Swing": true,
-    "SwingDelay": 100,
+    "Direction": "Swap",
+    "YawStep": 6.5,
     "Jump": true,
-    "Move": true,
+    "Sprint": true,
+    "SwitchItems": true,
+    "SwitchDelay": "3500-7000",
+    "Pause": true,
+    "PauseEvery": "15000-30000",
+    "PauseDuration": "5000-10000",
+    "ClickMode": "Random",
+    "ClicksAfterPause": "1-2",
+    "ClickDelay": "200-450",
     "Hide": false,
     "Reset": false
   },
@@ -402,6 +406,7 @@
   },
   "AutoText": {
     "AddMessage": "",
+    "Messages": [],
     "Mode": "FullRandom",
     "RandomLogic": "Dependent",
     "RangeMax": 5,

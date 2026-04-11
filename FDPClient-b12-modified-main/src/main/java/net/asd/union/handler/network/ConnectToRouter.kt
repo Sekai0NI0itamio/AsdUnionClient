@@ -29,39 +29,17 @@ object ConnectToRouter : MinecraftInstance, Listenable {
         "tun", "tap", "ppp", "wg", "utun", "ipsec", "vpn", "wireguard", "tailscale", "zerotier",
     )
 
-    var enabled = false
+    private var savedEnabled = false
+    private var enabledState = false
+
+    var enabled: Boolean
+        get() = enabledState
         set(value) {
-            if (field == value) {
-                return
-            }
-
-            field = value
-
-            if (value) {
-                consecutiveFailures = 0
-                wasAutoDisabled = false
-                autoDisableReason = ""
-                sendRefreshPacket()
-                refreshStatus()
-            } else {
-                status = Status.OFF
-                lastError = ""
-                lastLocalIp = ""
-                vpnDetected = false
-                selectedInterface = ""
-                preferredAddress = null
-                tunnelAvailable = false
-                tunnelInterface = ""
-                tunnelIp = ""
-                refreshTimer.zero()
-            }
-
-            runCatching {
-                FileManager.saveConfig(FileManager.valuesConfig)
-            }.onFailure {
-                logDebug("Failed to persist router state: ${it.message}")
-            }
+            applyEnabledState(value, persist = true, rememberPreference = true)
         }
+
+    val persistedEnabled: Boolean
+        get() = savedEnabled
 
     var debugEnabled = true
 
@@ -117,6 +95,10 @@ object ConnectToRouter : MinecraftInstance, Listenable {
     }
 
     fun isTunnelMode(): Boolean = enabled && status == Status.TUNNEL
+
+    fun loadEnabledState(value: Boolean) {
+        applyEnabledState(value, persist = false, rememberPreference = true)
+    }
 
     @Synchronized
     fun ultraFastRefreshServerPing(): UltraFastRefreshResult {
@@ -311,7 +293,55 @@ object ConnectToRouter : MinecraftInstance, Listenable {
             logDebug("Auto-disabling after $consecutiveFailures consecutive failures")
             wasAutoDisabled = true
             autoDisableReason = reason
-            enabled = false
+            applyEnabledState(false, persist = false, rememberPreference = false)
+        }
+    }
+
+    private fun applyEnabledState(value: Boolean, persist: Boolean, rememberPreference: Boolean) {
+        val stateChanged = enabledState != value
+
+        if (rememberPreference) {
+            savedEnabled = value
+        }
+
+        if (!stateChanged) {
+            if (persist) {
+                persistState()
+            }
+            return
+        }
+
+        enabledState = value
+
+        if (value) {
+            consecutiveFailures = 0
+            wasAutoDisabled = false
+            autoDisableReason = ""
+            sendRefreshPacket()
+            refreshStatus()
+        } else {
+            status = Status.OFF
+            lastError = ""
+            lastLocalIp = ""
+            vpnDetected = false
+            selectedInterface = ""
+            preferredAddress = null
+            tunnelAvailable = false
+            tunnelInterface = ""
+            tunnelIp = ""
+            refreshTimer.zero()
+        }
+
+        if (persist) {
+            persistState()
+        }
+    }
+
+    private fun persistState() {
+        runCatching {
+            FileManager.saveConfig(FileManager.valuesConfig)
+        }.onFailure {
+            logDebug("Failed to persist router state: ${it.message}")
         }
     }
 

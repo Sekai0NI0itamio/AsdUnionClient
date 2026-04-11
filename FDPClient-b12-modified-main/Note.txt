@@ -1,0 +1,11 @@
+This folder is the real client source tree used by GitHub Actions and the remote build helper.
+
+Source of truth:
+- Edit code and resources in FDPClient-b12-modified-main/ for anything that should appear in remote builds.
+- The workflow in ../.github/workflows/build.yml runs from this directory.
+- The helper script in ../scripts/github-remote-build.sh stages this directory as a vital path.
+
+Important:
+- Root-level src/ and the root build.gradle are part of a separate local patch/overlay setup.
+- Changes made only in the root src/ tree will not show up in the current remote build artifact.
+- If you prototype something in the root patch project, port it into this folder before using the remote build pipeline.

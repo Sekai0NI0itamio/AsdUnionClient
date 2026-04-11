@@ -21,6 +21,11 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
     
     // Message list storage
     private val messages = mutableListOf<String>()
+    private val messagesValue = object : TextListValue("Messages", emptyList(), subjective = true, isSupported = { false }) {
+        override fun onUpdate(value: List<String>) {
+            syncMessages(value)
+        }
+    }
     
     // Mode selection
     private val mode by choices("Mode", arrayOf("FullRandom", "RangedRandom", "Single"), "FullRandom")
@@ -203,27 +208,41 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
         
         return result.toString()
     }
+
+    private fun syncMessages(newMessages: List<String>) {
+        messages.clear()
+        messages.addAll(normalizeMessages(newMessages))
+        dependentCache.clear()
+    }
+
+    private fun normalizeMessages(entries: List<String>): List<String> {
+        return entries.map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    private fun updateMessages(newMessages: List<String>, saveImmediately: Boolean): Boolean {
+        return messagesValue.set(normalizeMessages(newMessages), saveImmediately)
+    }
     
     // Public API for commands
-    fun addMessage(message: String): Boolean {
-        if (message.isBlank()) return false
-        messages.add(message)
-        // Reset dependent cache when messages change
-        dependentCache.clear()
-        return true
+    fun addMessage(message: String, saveImmediately: Boolean = true): Boolean {
+        val normalizedMessage = message.trim()
+        if (normalizedMessage.isBlank()) return false
+
+        return updateMessages(messages + normalizedMessage, saveImmediately)
     }
     
-    fun removeMessage(id: Int): Boolean {
+    fun removeMessage(id: Int, saveImmediately: Boolean = true): Boolean {
         val index = id - 1
         if (index !in messages.indices) return false
-        messages.removeAt(index)
-        dependentCache.clear()
-        return true
+
+        val updatedMessages = messages.toMutableList().apply {
+            removeAt(index)
+        }
+        return updateMessages(updatedMessages, saveImmediately)
     }
     
-    fun clearMessages() {
-        messages.clear()
-        dependentCache.clear()
+    fun clearMessages(saveImmediately: Boolean = true) {
+        updateMessages(emptyList(), saveImmediately)
     }
     
     fun getMessages(): List<Pair<Int, String>> {
