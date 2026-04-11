@@ -7,6 +7,7 @@ package net.asd.union.injection.forge.mixins.gui;
 
 import net.asd.union.ui.client.gui.GuiClientFixes;
 import net.asd.union.ui.client.altmanager.GuiAltManager;
+import net.asd.union.utils.client.ServerPingController;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiMultiplayer;
 import net.minecraft.client.gui.GuiScreen;
@@ -47,5 +48,10 @@ public abstract class MixinGuiMultiplayer extends MixinGuiScreen {
                 mc.displayGuiScreen(new GuiAltManager((GuiScreen) (Object) this));
                 break;
         }
+    }
+
+    @Inject(method = "onGuiClosed", at = @At("HEAD"))
+    private void onGuiClosed(CallbackInfo callbackInfo) {
+        ServerPingController.beginNewRefreshCycle();
     }
 }

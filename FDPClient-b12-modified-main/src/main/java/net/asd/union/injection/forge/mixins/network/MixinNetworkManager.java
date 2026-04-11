@@ -8,11 +8,13 @@ package net.asd.union.injection.forge.mixins.network;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelOption;
 import java.net.InetAddress;
 import net.asd.union.event.EventManager;
 import net.asd.union.event.EventState;
 import net.asd.union.event.PacketEvent;
 import net.asd.union.handler.network.ConnectToRouter;
+import net.asd.union.utils.client.ServerPingController;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
 import org.apache.logging.log4j.LogManager;
@@ -28,17 +30,22 @@ public class MixinNetworkManager {
     private static final Logger ROUTER_LOG = LogManager.getLogger("ConnectToRouter");
 
     private static boolean isServerPingerThread() {
-        return Thread.currentThread().getName().startsWith("Server Pinger");
+        return ServerPingController.isServerPingerThread();
     }
 
     @Redirect(
             method = "createNetworkManagerAndConnect",
             at = @At(
                     value = "INVOKE",
-                    target = "Lio/netty/bootstrap/Bootstrap;connect(Ljava/net/InetAddress;I)Lio/netty/channel/ChannelFuture;"
+                    target = "Lio/netty/bootstrap/Bootstrap;connect(Ljava/net/InetAddress;I)Lio/netty/channel/ChannelFuture;",
+                    remap = false
             )
     )
     private static ChannelFuture redirectConnect(Bootstrap bootstrap, InetAddress address, int port) {
+        if (isServerPingerThread()) {
+            bootstrap.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, ServerPingController.getConnectTimeoutMillis());
+        }
+
         boolean shouldUseTunnel = ConnectToRouter.INSTANCE.getEnabled()
                 && (ConnectToRouter.INSTANCE.isTunnelMode() || ConnectToRouter.INSTANCE.getTunnelAvailable());
 
@@ -48,7 +55,7 @@ public class MixinNetworkManager {
                 int tunnelPort = 25560;
                 String realTarget = address != null ? address.getHostAddress() : "unresolved";
                 ROUTER_LOG.info("Routing via tunnel 127.0.0.1:" + tunnelPort + "  (real target " + realTarget + ":" + port + ")");
-                return bootstrap.connect(loopback, tunnelPort);
+                return trackConnectFuture(bootstrap.connect(loopback, tunnelPort));
             } catch (Exception e) {
                 ROUTER_LOG.warn("Tunnel connect failed, falling back: " + e.getMessage());
             }
@@ -58,12 +65,28 @@ public class MixinNetworkManager {
             InetAddress localAddress = ConnectToRouter.INSTANCE.getPreferredLocalAddressFor(address);
             if (localAddress != null) {
                 ROUTER_LOG.info("Binding to " + localAddress.getHostAddress());
-                return bootstrap.localAddress(localAddress, 0).connect(address, port);
+                return trackConnectFuture(bootstrap.localAddress(localAddress, 0).connect(address, port));
             }
-            return bootstrap.connect(address, port);
+            return trackConnectFuture(bootstrap.connect(address, port));
         }
 
         return failedConnectFuture(bootstrap, address, port);
+    }
+
+    @Redirect(
+            method = "createNetworkManagerAndConnect",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lio/netty/channel/ChannelFuture;syncUninterruptibly()Lio/netty/channel/ChannelFuture;",
+                    remap = false
+            )
+    )
+    private static ChannelFuture redirectSyncUninterruptibly(ChannelFuture future) {
+        if (isServerPingerThread()) {
+            return future;
+        }
+
+        return future.syncUninterruptibly();
     }
 
     private static ChannelFuture failedConnectFuture(Bootstrap bootstrap, InetAddress address, int port) {
@@ -71,10 +94,22 @@ public class MixinNetworkManager {
         ROUTER_LOG.warn(message);
 
         try {
-            return bootstrap.connect(InetAddress.getByName("127.0.0.1"), 9);
+            return trackConnectFuture(bootstrap.connect(InetAddress.getByName("127.0.0.1"), 9));
         } catch (Exception e) {
-            return bootstrap.connect(InetAddress.getLoopbackAddress(), 9);
+            return trackConnectFuture(bootstrap.connect(InetAddress.getLoopbackAddress(), 9));
         }
+    }
+
+    private static ChannelFuture trackConnectFuture(ChannelFuture future) {
+        if (isServerPingerThread()) {
+            ServerPingController.registerConnectFuture(future);
+
+            if (ServerPingController.shouldCancelCurrentPing()) {
+                future.cancel(true);
+            }
+        }
+
+        return future;
     }
 
     @Inject(method = "channelRead0", at = @At("HEAD"), cancellable = true)

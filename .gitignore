@@ -18,3 +18,4 @@ FDPClient-b12-modified-main/.auaci/
 FDPClient-b12-modified-main/backup/
 FDPClient-b12-modified-main/ClientRunLogFile.txt
 FDPClient-b12-modified-main/crash.txt
+/recovery/decompiled-src/net/asd/union/features/module/modules/visual/BedPlates.java
