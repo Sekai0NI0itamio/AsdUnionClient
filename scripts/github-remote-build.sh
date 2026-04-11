@@ -81,6 +81,40 @@ print_path_list() {
     done
 }
 
+gh_retry() {
+    local attempt=1
+    local exit_code=0
+    local output=""
+
+    while (( attempt <= GH_RETRY_ATTEMPTS )); do
+        if output="$("$@" 2>&1)"; then
+            if [[ -n "$output" ]]; then
+                printf '%s\n' "$output"
+            fi
+            return 0
+        fi
+
+        exit_code=$?
+
+        if (( attempt == GH_RETRY_ATTEMPTS )); then
+            if [[ -n "$output" ]]; then
+                printf '%s\n' "$output" >&2
+            fi
+            return "$exit_code"
+        fi
+
+        echo "Warning: command failed on attempt $attempt/$GH_RETRY_ATTEMPTS; retrying in ${GH_RETRY_DELAY}s..." >&2
+        if [[ -n "$output" ]]; then
+            printf '%s\n' "$output" >&2
+        fi
+
+        sleep "$GH_RETRY_DELAY"
+        ((attempt++))
+    done
+
+    return "$exit_code"
+}
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
@@ -92,6 +126,8 @@ COMMIT_MESSAGE="chore: sync vital files for remote build"
 AUTO_PUSH=1
 POLL_SECONDS=5
 RUN_DISCOVERY_TIMEOUT=120
+GH_RETRY_ATTEMPTS=5
+GH_RETRY_DELAY=3
 VITAL_PATHS=(
     ".github"
     ".gitignore"
@@ -202,6 +238,46 @@ sync_vital_changes() {
     echo "  $head_sha"
 }
 
+fetch_run_state() {
+    gh_retry \
+        gh run view "$RUN_ID" \
+        --repo "$REPO_SLUG" \
+        --json status,conclusion,url \
+        --jq '[.status // "", .conclusion // "", .url // ""] | @tsv'
+}
+
+wait_for_run_completion() {
+    local state_line=""
+    local status=""
+    local conclusion=""
+    local url=""
+
+    while true; do
+        state_line="$(fetch_run_state)"
+        IFS=$'\t' read -r status conclusion url <<<"$state_line"
+
+        if [[ -n "${url:-}" ]]; then
+            RUN_URL="$url"
+        fi
+
+        case "$status" in
+            completed)
+                RUN_CONCLUSION="${conclusion:-}"
+                echo "Run $RUN_ID completed with conclusion: ${RUN_CONCLUSION:-unknown}"
+                return 0
+                ;;
+            queued|in_progress|requested|waiting|pending|"")
+                echo "Run $RUN_ID status: ${status:-unknown}. Waiting ${POLL_SECONDS}s..."
+                sleep "$POLL_SECONDS"
+                ;;
+            *)
+                echo "Run $RUN_ID reported status '$status'. Waiting ${POLL_SECONDS}s..."
+                sleep "$POLL_SECONDS"
+                ;;
+        esac
+    done
+}
+
 OUTPUT_ROOT="$REPO_ROOT/github-build-output"
 LATEST_DIR="$OUTPUT_ROOT/latest"
 EXTRACTED_DIR="$LATEST_DIR/artifact-extracted"
@@ -213,6 +289,7 @@ RUN_JSON="$LATEST_DIR/run.json"
 RUN_LOG="$LOGS_DIR/run.log"
 SUMMARY_FILE="$LATEST_DIR/summary.txt"
 BUNDLE_ZIP="$BUNDLE_DIR/${ARTIFACT_NAME}.zip"
+RUN_CONCLUSION=""
 
 mkdir -p "$OUTPUT_ROOT"
 
@@ -227,7 +304,8 @@ fi
 
 echo "Collecting existing workflow_dispatch runs for $WORKFLOW_FILE on $REF..."
 EXISTING_RUN_IDS="$(
-    gh run list \
+    gh_retry \
+        gh run list \
         --repo "$REPO_SLUG" \
         --workflow "$WORKFLOW_FILE" \
         --branch "$REF" \
@@ -238,7 +316,7 @@ EXISTING_RUN_IDS="$(
 )"
 
 echo "Triggering remote build for $REPO_SLUG ($REF)..."
-gh workflow run "$WORKFLOW_FILE" --repo "$REPO_SLUG" --ref "$REF" >/dev/null
+gh_retry gh workflow run "$WORKFLOW_FILE" --repo "$REPO_SLUG" --ref "$REF" >/dev/null
 
 RUN_ID=""
 RUN_URL=""
@@ -253,7 +331,8 @@ for ((i = 0; i < RUN_DISCOVERY_TIMEOUT / POLL_SECONDS; i++)); do
             break 2
         fi
     done < <(
-        gh run list \
+        gh_retry \
+            gh run list \
             --repo "$REPO_SLUG" \
             --workflow "$WORKFLOW_FILE" \
             --branch "$REF" \
@@ -268,28 +347,26 @@ done
 
 [[ -n "$RUN_ID" ]] || die "Timed out while waiting for the new workflow run to appear"
 
-echo "Watching run $RUN_ID..."
-WATCH_EXIT=0
-if ! gh run watch "$RUN_ID" --repo "$REPO_SLUG" --interval "$POLL_SECONDS" --exit-status; then
-    WATCH_EXIT=$?
-fi
+echo "Waiting for run $RUN_ID to complete..."
+wait_for_run_completion
 
 rm -rf "$LATEST_DIR"
 mkdir -p "$EXTRACTED_DIR" "$BUNDLE_DIR" "$LIBS_DIR" "$REPORTS_DIR" "$LOGS_DIR"
 
 echo "Saving run metadata..."
-gh run view \
+gh_retry \
+    gh run view \
     "$RUN_ID" \
     --repo "$REPO_SLUG" \
     --json databaseId,name,displayTitle,event,status,conclusion,url,headBranch,headSha,createdAt,updatedAt \
     > "$RUN_JSON"
 
 echo "Saving workflow log..."
-gh run view "$RUN_ID" --repo "$REPO_SLUG" --log > "$RUN_LOG"
+gh_retry gh run view "$RUN_ID" --repo "$REPO_SLUG" --log > "$RUN_LOG"
 
 ARTIFACT_DOWNLOAD_EXIT=0
 echo "Downloading artifact '$ARTIFACT_NAME'..."
-if ! gh run download "$RUN_ID" --repo "$REPO_SLUG" --name "$ARTIFACT_NAME" --dir "$EXTRACTED_DIR"; then
+if ! gh_retry gh run download "$RUN_ID" --repo "$REPO_SLUG" --name "$ARTIFACT_NAME" --dir "$EXTRACTED_DIR"; then
     ARTIFACT_DOWNLOAD_EXIT=$?
     echo "Warning: artifact '$ARTIFACT_NAME' could not be downloaded." >&2
 fi
@@ -320,6 +397,7 @@ fi
     echo "commit_message=$COMMIT_MESSAGE"
     echo "run_id=$RUN_ID"
     echo "run_url=$RUN_URL"
+    echo "run_conclusion=$RUN_CONCLUSION"
     echo "metadata=$RUN_JSON"
     echo "log=$RUN_LOG"
     echo "bundle_zip=$BUNDLE_ZIP"
@@ -333,10 +411,10 @@ echo "  $LATEST_DIR"
 echo "Run URL:"
 echo "  ${RUN_URL:-unknown}"
 
-if [[ "$WATCH_EXIT" -ne 0 ]]; then
+if [[ "$RUN_CONCLUSION" != "success" ]]; then
     echo "The remote workflow finished with a non-zero status. Check:"
     echo "  $RUN_LOG"
-    exit "$WATCH_EXIT"
+    exit 1
 fi
 
 echo "Remote build completed successfully."
