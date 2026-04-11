@@ -86,9 +86,16 @@ object StartupOptimizer {
         // Optimize networking
         System.setProperty("java.net.useSystemProxies", "false")
         System.setProperty("networkaddress.cache.ttl", "300")
-        
-        // Optimize file I/O
-        System.setProperty("java.nio.file.spi.DefaultFileSystemProvider", "sun.nio.fs.WindowsFileSystemProvider")
+
+        // Never force a platform-specific file system provider.
+        val providerProperty = "java.nio.file.spi.DefaultFileSystemProvider"
+        val currentProvider = System.getProperty(providerProperty)
+        val isWindows = System.getProperty("os.name").contains("windows", ignoreCase = true)
+
+        if (!isWindows && currentProvider == "sun.nio.fs.WindowsFileSystemProvider") {
+            LOGGER.warn("[StartupOptimizer] Clearing Windows-only file system provider override on non-Windows OS")
+            System.clearProperty(providerProperty)
+        }
     }
     
     /**

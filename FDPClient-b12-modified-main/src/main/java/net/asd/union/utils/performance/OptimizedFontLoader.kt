@@ -38,9 +38,18 @@ object OptimizedFontLoader {
      */
     fun downloadFontsOptimized() {
         val time = measureTimeMillis {
+            if (!fontsDir.exists()) {
+                fontsDir.mkdirs()
+            }
+
             // Check if fonts already exist
             if (areEssentialFontsPresent()) {
                 LOGGER.info("[OptimizedFontLoader] Essential fonts already present, skipping download")
+                return@measureTimeMillis
+            }
+
+            if (StartupOptimizer.skipNetworkRequests) {
+                LOGGER.info("[OptimizedFontLoader] Skipping font download because startup network requests are disabled")
                 return@measureTimeMillis
             }
             
