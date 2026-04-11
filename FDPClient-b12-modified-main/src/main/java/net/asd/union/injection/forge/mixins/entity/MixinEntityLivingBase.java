@@ -9,8 +9,6 @@ import net.asd.union.event.EventManager;
 import net.asd.union.event.EventState;
 import net.asd.union.event.JumpEvent;
 import net.asd.union.event.LivingUpdateEvent;
-import net.asd.union.features.module.modules.movement.AirJump;
-import net.asd.union.features.module.modules.movement.Jesus;
 import net.asd.union.features.module.modules.movement.NoJumpDelay;
 import net.asd.union.features.module.modules.movement.Sprint;
 import net.asd.union.features.module.modules.client.Animations;
@@ -116,20 +114,6 @@ public abstract class MixinEntityLivingBase extends MixinEntity {
     @Inject(method = "onLivingUpdate", at = @At("HEAD"))
     private void headLiving(CallbackInfo callbackInfo) {
         if (NoJumpDelay.INSTANCE.handleEvents() || Scaffold.INSTANCE.handleEvents() && Tower.INSTANCE.getTowerModeValues().equals("Pulldown")) jumpTicks = 0;
-    }
-
-    @Inject(method = "onLivingUpdate", at = @At(value = "FIELD", target = "Lnet/minecraft/entity/EntityLivingBase;isJumping:Z", ordinal = 1))
-    private void onJumpSection(CallbackInfo callbackInfo) {
-        if (AirJump.INSTANCE.handleEvents() && isJumping && jumpTicks == 0) {
-            jump();
-            jumpTicks = 10;
-        }
-
-        final Jesus liquidWalk = Jesus.INSTANCE;
-
-        if (liquidWalk.handleEvents() && !isJumping && !isSneaking() && isInWater() && liquidWalk.getMode().equals("Swim")) {
-            updateAITick();
-        }
     }
 
     @Inject(method = "getLook", at = @At("HEAD"), cancellable = true)

@@ -9,7 +9,6 @@ import net.asd.union.event.AttackEvent;
 import net.asd.union.event.ClickWindowEvent;
 import net.asd.union.event.ClientSlotChangeEvent;
 import net.asd.union.event.EventManager;
-import net.asd.union.features.module.modules.exploit.AbortBreaking;
 import net.asd.union.utils.attack.CooldownHelper;
 import net.asd.union.utils.inventory.SilentHotbar;
 import net.asd.union.utils.inventory.InventoryUtils;
@@ -39,7 +38,6 @@ public class MixinPlayerControllerMP {
 
     @Inject(method = "getIsHittingBlock", at = @At("HEAD"), cancellable = true)
     private void getIsHittingBlock(CallbackInfoReturnable<Boolean> callbackInfoReturnable) {
-        if (AbortBreaking.INSTANCE.handleEvents()) callbackInfoReturnable.setReturnValue(false);
     }
 
     @Inject(method = "windowClick", at = @At("HEAD"), cancellable = true)

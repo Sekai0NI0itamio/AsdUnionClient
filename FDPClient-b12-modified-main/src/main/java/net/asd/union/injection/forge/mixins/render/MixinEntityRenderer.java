@@ -11,7 +11,6 @@ import net.asd.union.event.Render3DEvent;
 import net.asd.union.features.module.modules.combat.Backtrack;
 import net.asd.union.features.module.modules.combat.ForwardTrack;
 import net.asd.union.features.module.modules.other.OverrideRaycast;
-import net.asd.union.features.module.modules.player.Reach;
 import net.asd.union.features.module.modules.visual.*;
 import net.asd.union.utils.rotation.Rotation;
 import net.asd.union.utils.rotation.RotationUtils;
@@ -132,14 +131,11 @@ public abstract class MixinEntityRenderer {
         if (entity != null && mc.theWorld != null) {
             mc.mcProfiler.startSection("pick");
             mc.pointedEntity = null;
-
-            final Reach reach = Reach.INSTANCE;
-
-            double d0 = reach.handleEvents() ? reach.getMaxRange() : mc.playerController.getBlockReachDistance();
+            double d0 = mc.playerController.getBlockReachDistance();
             Vec3 vec3 = entity.getPositionEyes(p_getMouseOver_1_);
             Rotation rotation = new Rotation(mc.thePlayer.rotationYaw, mc.thePlayer.rotationPitch);
             Vec3 vec31 = RotationUtils.INSTANCE.getVectorForRotation(RotationUtils.INSTANCE.getCurrentRotation() != null && OverrideRaycast.INSTANCE.shouldOverride() ? RotationUtils.INSTANCE.getCurrentRotation() : rotation);
-            double p_rayTrace_1_ = (reach.handleEvents() ? reach.getBuildReach() : d0);
+            double p_rayTrace_1_ = d0;
             Vec3 vec32 = vec3.addVector(vec31.xCoord * p_rayTrace_1_, vec31.yCoord * p_rayTrace_1_, vec31.zCoord * p_rayTrace_1_);
             mc.objectMouseOver = entity.worldObj.rayTraceBlocks(vec3, vec32, false, false, true);
             double d1 = d0;
@@ -153,14 +149,6 @@ public abstract class MixinEntityRenderer {
 
             if (mc.objectMouseOver != null) {
                 d1 = mc.objectMouseOver.hitVec.distanceTo(vec3);
-            }
-
-            if (reach.handleEvents()) {
-                double p_rayTrace_1_2 = reach.getBuildReach();
-                Vec3 vec322 = vec3.addVector(vec31.xCoord * p_rayTrace_1_2, vec31.yCoord * p_rayTrace_1_2, vec31.zCoord * p_rayTrace_1_2);
-                final MovingObjectPosition movingObjectPosition = entity.worldObj.rayTraceBlocks(vec3, vec322, false, false, true);
-
-                if (movingObjectPosition != null) d1 = movingObjectPosition.hitVec.distanceTo(vec3);
             }
 
             pointedEntity = null;
@@ -210,7 +198,7 @@ public abstract class MixinEntityRenderer {
                 }
             }
 
-            if (pointedEntity != null && flag && vec3.distanceTo(vec33) > (reach.handleEvents() ? reach.getCombatReach() : 3)) {
+            if (pointedEntity != null && flag && vec3.distanceTo(vec33) > 3) {
                 pointedEntity = null;
                 mc.objectMouseOver = new MovingObjectPosition(MovingObjectPosition.MovingObjectType.MISS, Objects.requireNonNull(vec33), null, new BlockPos(vec33));
             }

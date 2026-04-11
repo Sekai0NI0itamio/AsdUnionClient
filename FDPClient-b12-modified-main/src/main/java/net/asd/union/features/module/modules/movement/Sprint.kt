@@ -55,29 +55,54 @@ object Sprint : Module("Sprint", Category.MOVEMENT, gameDetecting = false, hideM
 
     fun correctSprintState(movementInput: MovementInput, isUsingItem: Boolean) {
         val player = mc.thePlayer ?: return
+        val scaffoldActive = Scaffold.handleEvents()
+        val scaffoldControlsSprint = scaffoldActive && Scaffold.sprint
 
         if (SuperKnockback.breakSprint()) {
             player setSprintSafely false
             return
         }
 
-        if (!handleEvents() || onlyOnSprintPress && !player.isSprinting && !mc.gameSettings.keyBindSprint.isKeyDown && !SuperKnockback.startSprint() && !isSprinting)
-            return
-
-        if (Scaffold.handleEvents()) {
+        if (scaffoldActive) {
             if (!Scaffold.sprint) {
                 player setSprintSafely false
                 isSprinting = false
                 return
-            } else if (Scaffold.sprint && Scaffold.eagle == "Normal" && player.isMoving && player.onGround && Scaffold.eagleSneaking && Scaffold.eagleSprint) {
+            }
+
+            if (!Scaffold.canSprint) {
+                player setSprintSafely false
+                isSprinting = false
+                return
+            }
+
+            if (Scaffold.eagle == "Normal" && player.isMoving && player.onGround && Scaffold.eagleSneaking && Scaffold.eagleSprint) {
                 player setSprintSafely true
                 isSprinting = true
                 return
             }
+
+            val ignoreDirectionCheck = scaffoldControlsSprint && mode == "Vanilla"
+
+            player setSprintSafely !shouldStopSprinting(movementInput, isUsingItem, ignoreDirectionCheck)
+            isSprinting = player.isSprinting
+
+            if (player.isSprinting && mode != "Legit") {
+                if (!allDirectionsLimitSpeedGround || player.onGround) {
+                    player.motionX *= allDirectionsLimitSpeed
+                    player.motionZ *= allDirectionsLimitSpeed
+                }
+            }
+            return
         }
 
+        if (!handleEvents() || onlyOnSprintPress && !player.isSprinting && !mc.gameSettings.keyBindSprint.isKeyDown && !SuperKnockback.startSprint() && !isSprinting)
+            return
+
+        val ignoreDirectionCheck = Scaffold.handleEvents() && Scaffold.sprint && Scaffold.canSprint && mode == "Vanilla"
+
         if (handleEvents() || alwaysCorrect) {
-            player setSprintSafely !shouldStopSprinting(movementInput, isUsingItem)
+            player setSprintSafely !shouldStopSprinting(movementInput, isUsingItem, ignoreDirectionCheck)
             isSprinting = player.isSprinting
 
             if (player.isSprinting && allDirections && mode != "Legit") {
@@ -89,7 +114,7 @@ object Sprint : Module("Sprint", Category.MOVEMENT, gameDetecting = false, hideM
         }
     }
 
-    private fun shouldStopSprinting(movementInput: MovementInput, isUsingItem: Boolean): Boolean {
+    private fun shouldStopSprinting(movementInput: MovementInput, isUsingItem: Boolean, ignoreDirectionCheck: Boolean = false): Boolean {
         val player = mc.thePlayer ?: return false
 
         val isLegitModeActive = mode == "Legit"
@@ -122,6 +147,10 @@ object Sprint : Module("Sprint", Category.MOVEMENT, gameDetecting = false, hideM
 
         if ((inventory || isLegitModeActive) && serverOpenInventory) {
             return true
+        }
+
+        if (ignoreDirectionCheck) {
+            return false
         }
 
         if (isLegitModeActive) {

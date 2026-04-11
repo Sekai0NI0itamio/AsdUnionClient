@@ -7,10 +7,7 @@ package net.asd.union.injection.forge.mixins.block;
 
 import net.asd.union.event.BlockBBEvent;
 import net.asd.union.event.EventManager;
-import net.asd.union.features.module.modules.combat.Criticals;
-import net.asd.union.features.module.modules.exploit.GhostHand;
 import net.asd.union.features.module.modules.player.DelayRemover;
-import net.asd.union.features.module.modules.player.NoFall;
 import net.asd.union.handler.render.AntiTranslucent;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
@@ -78,11 +75,6 @@ public abstract class MixinBlock {
 
     @Inject(method = "isCollidable", at = @At("HEAD"), cancellable = true)
     private void isCollidable(CallbackInfoReturnable<Boolean> callbackInfoReturnable) {
-        final GhostHand ghostHand = GhostHand.INSTANCE;
-
-        if (ghostHand.handleEvents() && !(ghostHand.getBlock() == Block.getIdFromBlock((Block) (Object) this))) {
-            callbackInfoReturnable.setReturnValue(false);
-        }
     }
 
     @Inject(method = "getAmbientOcclusionLightValue", at = @At("HEAD"), cancellable = true)
@@ -102,13 +94,6 @@ public abstract class MixinBlock {
 
             if (delayRemover.getAir() && !playerIn.onGround) {
                 f *= 5f;
-            }
-        } else if (playerIn.onGround) { // NoGround
-            final NoFall noFall = NoFall.INSTANCE;
-            final Criticals criticals = Criticals.INSTANCE;
-
-            if (noFall.handleEvents() && noFall.getMode().equals("NoGround") || criticals.handleEvents() && criticals.getMode().equals("NoGround")) {
-                f /= 5F;
             }
         }
 

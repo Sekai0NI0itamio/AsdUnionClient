@@ -6,7 +6,6 @@
 package net.asd.union.utils.rotation
 
 import net.asd.union.event.*
-import net.asd.union.features.module.modules.combat.FastBow
 import net.asd.union.features.module.modules.other.NoRotateSet
 import net.asd.union.features.module.modules.client.Rotations
 import net.asd.union.utils.block.block
@@ -177,7 +176,7 @@ object RotationUtils : MinecraftInstance, Listenable {
         var finalVelocity = velocity
 
         if (finalVelocity == null) {
-            finalVelocity = if (FastBow.handleEvents()) 1f else player.itemInUseDuration / 20f
+            finalVelocity = player.itemInUseDuration / 20f
             finalVelocity = ((finalVelocity * finalVelocity + finalVelocity * 2) / 3).coerceAtMost(1f)
         }
 

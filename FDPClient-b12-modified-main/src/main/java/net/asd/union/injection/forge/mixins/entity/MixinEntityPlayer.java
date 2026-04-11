@@ -6,7 +6,6 @@
 package net.asd.union.injection.forge.mixins.entity;
 
 import com.mojang.authlib.GameProfile;
-import net.asd.union.features.module.modules.combat.KeepSprint;
 import net.asd.union.utils.attack.CooldownHelper;
 import net.asd.union.utils.movement.MovementUtils;
 import net.minecraft.entity.Entity;
@@ -78,19 +77,19 @@ public abstract class MixinEntityPlayer extends MixinEntityLivingBase {
 
     @ModifyConstant(method = "attackTargetEntityWithCurrentItem", constant = @Constant(doubleValue = 0.6))
     private double injectKeepSprintA(double constant) {
-        return KeepSprint.INSTANCE.handleEvents() && isSprinting() ? KeepSprint.INSTANCE.getMotionAfterAttack() : constant;
+        return constant;
     }
 
     @Redirect(method = "attackTargetEntityWithCurrentItem", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/player/EntityPlayer;setSprinting(Z)V"))
     private void injectKeepSprintB(EntityPlayer instance, boolean sprint) {
         boolean keepSprint = Boolean.FALSE.equals(MovementUtils.INSTANCE.getAffectSprintOnAttack());
 
-        if (!KeepSprint.INSTANCE.handleEvents() && !keepSprint) {
+        if (!keepSprint) {
             instance.setSprinting(sprint);
         }
 
         // Only affect motion when sprinting. Knock-back modifier factor is ignored.
-        if (keepSprint && !KeepSprint.INSTANCE.handleEvents() && isSprinting()) {
+        if (keepSprint && isSprinting()) {
             // Reverse the motion effects done by sprinting
             motionX /= 0.6;
             motionZ /= 0.6;

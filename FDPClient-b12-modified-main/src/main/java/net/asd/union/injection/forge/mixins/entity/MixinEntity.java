@@ -10,8 +10,6 @@ import net.asd.union.features.module.modules.visual.FreeCam;
 import net.asd.union.injection.implementations.IMixinEntity;
 import net.asd.union.event.EventManager;
 import net.asd.union.event.StrafeEvent;
-import net.asd.union.features.module.modules.exploit.NoPitchLimit;
-import net.asd.union.features.module.modules.movement.NoFluid;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.crash.CrashReportCategory;
@@ -238,7 +236,7 @@ public abstract class MixinEntity implements IMixinEntity {
 
     @Redirect(method = "setAngles", at = @At(value = "INVOKE", target = "Lnet/minecraft/util/MathHelper;clamp_float(FFF)F"))
     private float setAngles(float a, float min, float max) {
-        return NoPitchLimit.INSTANCE.handleEvents() ? a : MathHelper.clamp_float(a, min, max);
+        return MathHelper.clamp_float(a, min, max);
     }
 
     @Inject(method = "moveFlying", at = @At("HEAD"), cancellable = true)
@@ -250,20 +248,6 @@ public abstract class MixinEntity implements IMixinEntity {
         EventManager.INSTANCE.call(strafeEvent);
 
         if (strafeEvent.isCancelled()) callbackInfo.cancel();
-    }
-
-    @Inject(method = "isInWater", at = @At("HEAD"), cancellable = true)
-    private void isInWater(final CallbackInfoReturnable<Boolean> cir) {
-        if (NoFluid.INSTANCE.handleEvents() && NoFluid.INSTANCE.getWaterValue()) {
-            cir.setReturnValue(false);
-        }
-    }
-
-    @Inject(method = "isInLava", at = @At("HEAD"), cancellable = true)
-    private void isInLava(final CallbackInfoReturnable<Boolean> cir) {
-        if (NoFluid.INSTANCE.handleEvents() && NoFluid.INSTANCE.getLavaValue()) {
-            cir.setReturnValue(false);
-        }
     }
 
     @Inject(method = "getPositionEyes", at = @At("RETURN"), cancellable = true)

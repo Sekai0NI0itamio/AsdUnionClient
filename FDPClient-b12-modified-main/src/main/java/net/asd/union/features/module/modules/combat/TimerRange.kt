@@ -10,7 +10,6 @@ import net.asd.union.config.*
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.player.Reach
 import net.asd.union.ui.client.hud.element.elements.Notification
 import net.asd.union.ui.client.hud.element.elements.Type
 import net.asd.union.utils.attack.EntityUtils.isLookingOnEntities
@@ -275,7 +274,7 @@ object TimerRange : Module("TimerRange", Category.COMBAT, hideModule = false) {
             outborder = false,
             predict = true,
             lookRange = if (timerBoostMode == "Normal") rangeValue else randomRange,
-            attackRange = if (Reach.handleEvents()) Reach.combatReach else 3f,
+            attackRange = 3f,
         )
 
         if (distance == null) {

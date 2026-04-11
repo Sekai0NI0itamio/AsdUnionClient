@@ -9,7 +9,6 @@ import net.asd.union.config.*
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.exploit.Disabler
 import net.asd.union.ui.font.Fonts
 import net.asd.union.utils.client.chat
 import net.asd.union.utils.extensions.*
@@ -179,8 +178,7 @@ object FlagCheck : Module("FlagCheck", Category.OTHER, gameDetecting = true, hid
             lastServerPos = null
         }
 
-        // GhostBlock Checks | Checks is disabled when using VerusFly Disabler, to prevent false flag.
-        if (ghostBlockCheck && (!Disabler.handleEvents() || (Disabler.handleEvents() && !Disabler.verusFly))) {
+        if (ghostBlockCheck) {
             val currentTime = System.currentTimeMillis()
 
             if (currentTime - lastCheckTime > 2000) {

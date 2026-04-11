@@ -132,7 +132,6 @@ object Tower : MinecraftInstance, Listenable {
                 return@handler
             if (Speed.state || Flight.state)
                 return@handler
-
             event.cancelEvent()
         }
     }

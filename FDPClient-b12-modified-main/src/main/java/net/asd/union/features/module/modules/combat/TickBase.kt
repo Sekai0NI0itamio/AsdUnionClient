@@ -9,7 +9,6 @@ import net.asd.union.config.*
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.player.Blink
 import net.asd.union.utils.attack.EntityUtils
 import net.asd.union.utils.kotlin.RandomUtils
 import net.asd.union.utils.render.RenderUtils.glColor
@@ -64,7 +63,7 @@ object TickBase : Module("TickBase", Category.COMBAT) {
     val onPreTick = handler<PlayerTickEvent> { event ->
         val player = mc.thePlayer ?: return@handler
 
-        if (player.ridingEntity != null || Blink.handleEvents()) {
+        if (player.ridingEntity != null) {
             return@handler
         }
 
@@ -76,7 +75,7 @@ object TickBase : Module("TickBase", Category.COMBAT) {
     val onGameTick = handler<GameTickEvent>(priority = 1) {
         val player = mc.thePlayer ?: return@handler
 
-        if (player.ridingEntity != null || Blink.handleEvents()) {
+        if (player.ridingEntity != null) {
             return@handler
         }
 
@@ -144,7 +143,7 @@ object TickBase : Module("TickBase", Category.COMBAT) {
     val onMove = handler<MoveEvent> {
         val player = mc.thePlayer ?: return@handler
 
-        if (player.ridingEntity != null || Blink.handleEvents()) {
+        if (player.ridingEntity != null) {
             return@handler
         }
 

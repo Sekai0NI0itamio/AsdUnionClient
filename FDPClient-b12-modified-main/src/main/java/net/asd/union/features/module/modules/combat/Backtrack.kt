@@ -9,7 +9,6 @@ import net.asd.union.config.*
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.player.Blink
 import net.asd.union.injection.implementations.IMixinEntity
 import net.asd.union.utils.attack.EntityUtils.isSelected
 import net.asd.union.utils.client.PacketUtils
@@ -123,7 +122,7 @@ object Backtrack : Module("Backtrack", Category.COMBAT, hideModule = false) {
             return@handler
         }
 
-        if (Blink.blinkingReceive() || event.isCancelled) return@handler
+        if (event.isCancelled) return@handler
 
         when (mode.lowercase()) {
             "legacy" -> {
@@ -250,7 +249,7 @@ object Backtrack : Module("Backtrack", Category.COMBAT, hideModule = false) {
 
         if (mode == "Modern") {
             if (targetMixin != null) {
-                if (!Blink.blinkingReceive() && shouldBacktrack() && targetMixin.truePos) {
+                if (shouldBacktrack() && targetMixin.truePos) {
                     val trueDist = mc.thePlayer.getDistance(targetMixin.trueX, targetMixin.trueY, targetMixin.trueZ)
                     val dist = mc.thePlayer.getDistance(target.posX, target.posY, target.posZ)
 

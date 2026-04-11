@@ -9,8 +9,6 @@ import net.asd.union.config.*
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.exploit.Disabler
-import net.asd.union.features.module.modules.movement.Speed
 import net.asd.union.utils.attack.EntityUtils.isLookingOnEntities
 import net.asd.union.utils.attack.EntityUtils.isSelected
 import net.asd.union.utils.client.*
@@ -273,7 +271,7 @@ object Velocity : Module("Velocity", Category.COMBAT, hideModule = false) {
                         thePlayer.onGround = true
 
                     // Reduce Y
-                    if (thePlayer.hurtResistantTime > 0 && aacPushYReducer && !Speed.handleEvents())
+                    if (thePlayer.hurtResistantTime > 0 && aacPushYReducer)
                         thePlayer.motionY -= 0.014999993
                 }
 
@@ -595,8 +593,6 @@ object Velocity : Module("Velocity", Category.COMBAT, hideModule = false) {
         }
 
         if (mode == "Vulcan") {
-            if (Disabler.handleEvents() && Disabler.verusCombat && (!Disabler.onlyCombat || Disabler.isOnCombat)) return@handler
-
             if (packet is S32PacketConfirmTransaction) {
                 event.cancelEvent()
                 sendPacket(

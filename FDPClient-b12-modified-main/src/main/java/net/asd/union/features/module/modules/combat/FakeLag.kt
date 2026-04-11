@@ -14,7 +14,6 @@ import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
 import net.asd.union.features.module.modules.combat.Backtrack.runWithModifiedRotation
-import net.asd.union.features.module.modules.player.Blink
 import net.asd.union.features.module.modules.player.scaffolds.Scaffold
 import net.asd.union.injection.implementations.IMixinEntity
 import net.asd.union.utils.client.PacketUtils.sendPacket
@@ -220,7 +219,7 @@ object FakeLag : Module("FakeLag", Category.COMBAT, gameDetecting = false, hideM
             }
         }
 
-        if (Blink.blinkingSend() || player.isDead || player.isUsingItem) {
+        if (player.isDead || player.isUsingItem) {
             blink()
             return@handler
         }
@@ -234,7 +233,7 @@ object FakeLag : Module("FakeLag", Category.COMBAT, gameDetecting = false, hideM
     val onRender3D = handler<Render3DEvent> { event ->
         val player = mc.thePlayer ?: return@handler
 
-        if (Blink.blinkingSend() || positions.isEmpty()) {
+        if (positions.isEmpty()) {
             renderData.reset(player)
             return@handler
         }

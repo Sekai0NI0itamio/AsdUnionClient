@@ -5,7 +5,6 @@
  */
 package net.asd.union.features.module.modules.combat
 
-import net.asd.union.config.boolean
 import net.asd.union.event.UpdateEvent
 import net.asd.union.event.handler
 import net.asd.union.features.module.Category
@@ -19,14 +18,10 @@ import net.minecraft.util.EnumFacing
 
 object AutoBow : Module("AutoBow", Category.COMBAT, subjective = true, hideModule = false) {
 
-    private val waitForBowAimbot by boolean("WaitForBowAimbot", true)
-
     val onUpdate = handler<UpdateEvent> {
         val thePlayer = mc.thePlayer
 
-        if (thePlayer.isUsingItem && thePlayer.heldItem?.item is ItemBow && thePlayer.itemInUseDuration > 20
-            && (!waitForBowAimbot || !ProjectileAimbot.handleEvents() || ProjectileAimbot.hasTarget())
-        ) {
+        if (thePlayer.isUsingItem && thePlayer.heldItem?.item is ItemBow && thePlayer.itemInUseDuration > 20) {
             thePlayer.stopUsingItem()
             sendPacket(C07PacketPlayerDigging(RELEASE_USE_ITEM, BlockPos.ORIGIN, EnumFacing.DOWN))
         }

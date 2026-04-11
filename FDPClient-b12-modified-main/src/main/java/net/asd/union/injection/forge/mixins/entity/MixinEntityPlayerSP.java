@@ -7,9 +7,6 @@ package net.asd.union.injection.forge.mixins.entity;
 
 import net.asd.union.event.*;
 import net.asd.union.features.module.modules.combat.KillAura;
-import net.asd.union.features.module.modules.exploit.AntiHunger;
-import net.asd.union.features.module.modules.exploit.Disabler;
-import net.asd.union.features.module.modules.movement.InvMove;
 import net.asd.union.features.module.modules.movement.NoSlow;
 import net.asd.union.features.module.modules.movement.Sneak;
 import net.asd.union.features.module.modules.movement.Sprint;
@@ -136,12 +133,10 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
         );
         EventManager.INSTANCE.call(motionEvent);
 
-        final InvMove inventoryMove = InvMove.INSTANCE;
         final Sneak sneak = Sneak.INSTANCE;
-        final boolean fakeSprint = inventoryMove.handleEvents() && inventoryMove.getAacAdditionPro()
-                || AntiHunger.INSTANCE.handleEvents()
-                || sneak.handleEvents() && (!PlayerExtensionKt.isMoving(mc.thePlayer) || !sneak.getStopMove()) && sneak.getMode().equals("MineSecure")
-                || Disabler.INSTANCE.handleEvents() && Disabler.INSTANCE.getStartSprint();
+        final boolean fakeSprint = sneak.handleEvents()
+                && (!PlayerExtensionKt.isMoving(mc.thePlayer) || !sneak.getStopMove())
+                && sneak.getMode().equals("MineSecure");
 
         boolean sprinting = isSprinting() && !fakeSprint;
 
@@ -231,9 +226,6 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
 
     @ModifyVariable(method = "sendChatMessage", at = @At("HEAD"), ordinal = 0, argsOnly = true)
     private String handleSendMessage(String content) {
-        if (Disabler.INSTANCE.handleEvents() && Disabler.INSTANCE.getSpigotSpam()) {
-            return Disabler.INSTANCE.getMessage() + " " + content;
-        }
         return content;
     }
 

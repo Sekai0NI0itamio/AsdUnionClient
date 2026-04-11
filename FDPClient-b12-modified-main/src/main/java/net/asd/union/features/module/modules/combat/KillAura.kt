@@ -10,8 +10,6 @@ import net.asd.union.config.*
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.movement.Flight
-import net.asd.union.features.module.modules.player.Blink
 import net.asd.union.features.module.modules.other.Fucker
 import net.asd.union.features.module.modules.other.Nuker
 import net.asd.union.features.module.modules.player.scaffolds.*
@@ -866,7 +864,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
         }
 
         if (!blinkAutoBlock || !BlinkUtils.isBlinking) {
-            val affectSprint = false.takeIf { KeepSprint.handleEvents() || keepSprint }
+            val affectSprint = false.takeIf { keepSprint }
 
             thePlayer.attackEntityWithModifiedSprint(entity, affectSprint) { if (swing) thePlayer.swingItem() }
         }
@@ -1151,11 +1149,6 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
             return@handler
         }
 
-        if (Blink.blinkingSend() || Blink.blinkingReceive()) {
-            BlinkUtils.unblink()
-            return@handler
-        }
-
         BlinkUtils.blink(packet, event)
     }
 
@@ -1255,9 +1248,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
     }
 
     private fun shouldCancelDueToModuleState(): Boolean {
-        return (blinkCheck && FDPClient.moduleManager[Blink::class.java.simpleName]?.state == true)
-                || (noScaffold && FDPClient.moduleManager[Scaffold::class.java.simpleName]?.state == true)
-                || (noFly && FDPClient.moduleManager[Flight::class.java.simpleName]?.state == true)
+        return (noScaffold && FDPClient.moduleManager[Scaffold::class.java.simpleName]?.state == true)
                 || (onSwording && mc.thePlayer.heldItem?.item !is ItemSword)
     }
 

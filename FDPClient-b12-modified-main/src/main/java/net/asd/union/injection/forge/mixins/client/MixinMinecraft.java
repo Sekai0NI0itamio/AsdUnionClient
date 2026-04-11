@@ -11,8 +11,6 @@ import net.asd.union.features.module.modules.other.FastPlace;
 import net.asd.union.handler.api.ClientUpdate;
 import net.asd.union.event.*;
 import net.asd.union.features.module.modules.combat.AutoClicker;
-import net.asd.union.features.module.modules.exploit.AbortBreaking;
-import net.asd.union.features.module.modules.exploit.MultiActions;
 import net.asd.union.injection.forge.SplashProgressLock;
 import net.asd.union.ui.client.gui.GuiClientConfiguration;
 import net.asd.union.ui.client.gui.GuiMainMenu;
@@ -301,18 +299,12 @@ public abstract class MixinMinecraft {
 
     @Redirect(method = "sendClickBlockToController", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/entity/EntityPlayerSP;isUsingItem()Z"))
     private boolean injectMultiActions(EntityPlayerSP instance) {
-        ItemStack itemStack = instance.itemInUse;
-
-        if (MultiActions.INSTANCE.handleEvents()) itemStack = null;
-
-        return itemStack != null;
+        return instance.itemInUse != null;
     }
 
     @Redirect(method = "sendClickBlockToController", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/multiplayer/PlayerControllerMP;resetBlockRemoving()V"))
     private void injectAbortBreaking(PlayerControllerMP instance) {
-        if (!AbortBreaking.INSTANCE.handleEvents()) {
-            instance.resetBlockRemoving();
-        }
+        instance.resetBlockRemoving();
     }
 
     @Redirect(method = "runGameLoop", at = @At(value = "INVOKE", target = "Ljava/util/Queue;isEmpty()Z"))

@@ -12,7 +12,6 @@ import net.asd.union.config.int
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.player.Blink
 import net.asd.union.features.module.modules.player.scaffolds.Scaffold
 import net.asd.union.features.module.modules.player.scaffolds.Tower
 import net.asd.union.utils.block.block
@@ -202,11 +201,6 @@ object AntiVoid : Module("AntiVoid", Category.MOVEMENT, hideModule = false) {
         if (mode != "Blink" || !shouldBlink) return@handler
 
         if (player.isDead || player.ticksExisted < 20) {
-            BlinkUtils.unblink()
-            return@handler
-        }
-
-        if (Blink.blinkingSend() || Blink.blinkingReceive()) {
             BlinkUtils.unblink()
             return@handler
         }

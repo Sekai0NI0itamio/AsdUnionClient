@@ -12,7 +12,6 @@ import net.asd.union.event.WorldEvent
 import net.asd.union.event.handler
 import net.asd.union.features.module.Module
 import net.asd.union.features.module.Category
-import net.asd.union.features.module.modules.combat.Criticals
 import net.asd.union.handler.combat.CombatManager
 import net.asd.union.utils.extensions.withAlpha
 import net.asd.union.utils.render.ColorSettingsInteger
@@ -207,9 +206,7 @@ object CombatVisuals : Module("CombatVisuals", Category.VISUAL, hideModule = fal
             // Critical Effect
             if (thePlayer.fallDistance > 0F && !thePlayer.onGround && !thePlayer.isOnLadder && !thePlayer.isInWater && !thePlayer.isPotionActive(
                     Potion.blindness
-                ) && thePlayer.ridingEntity == null || Criticals.handleEvents() && Criticals.msTimer.hasTimePassed(
-                    Criticals.delay
-                ) && !thePlayer.isInWater && !thePlayer.isInLava && !thePlayer.isInWeb) {
+                ) && thePlayer.ridingEntity == null) {
                 thePlayer.onCriticalHit(entity)
             }
 

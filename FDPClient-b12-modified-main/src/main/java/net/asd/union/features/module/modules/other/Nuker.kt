@@ -9,7 +9,6 @@ import net.asd.union.config.*
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.movement.FastBreak
 import net.asd.union.ui.font.Fonts
 import net.asd.union.utils.block.BlockUtils.getCenterDistance
 import net.asd.union.utils.block.BlockUtils.searchBlocks
@@ -85,7 +84,7 @@ object Nuker : Module("Nuker", Category.OTHER, gameDetecting = false, hideModule
 
     val onUpdate = handler<UpdateEvent> {
         // Block hit delay
-        if (blockHitDelay > 0 && !FastBreak.handleEvents()) {
+        if (blockHitDelay > 0) {
             blockHitDelay--
             return@handler
         }

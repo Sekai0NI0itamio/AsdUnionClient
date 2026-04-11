@@ -8,7 +8,6 @@ package net.asd.union.handler.render
 import net.asd.union.event.Listenable
 import net.asd.union.event.UpdateEvent
 import net.asd.union.event.handler
-import net.asd.union.features.module.modules.exploit.Ghost
 import net.asd.union.utils.client.MinecraftInstance
 import net.minecraft.client.gui.GuiGameOver
 
@@ -74,7 +73,7 @@ object AntiSpawnLag : Listenable, MinecraftInstance {
     }
 
     val onUpdate = handler<UpdateEvent> {
-        if (!enabled || Ghost.handleEvents()) {
+        if (!enabled) {
             return@handler
         }
 
