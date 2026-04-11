@@ -111,6 +111,8 @@ processResources {
     inputs.property "version", project.version
     inputs.property "mcversion", project.minecraft.version
 
+    exclude "fdpclient.mixins.refmap.json"
+
     filesMatching("mcmod.info") {
         expand "version": project.version, "mcversion": project.minecraft.version
     }
@@ -126,7 +128,24 @@ task moveResources {
 }
 
 moveResources.dependsOn(processResources)
-classes.dependsOn(moveResources)
+
+task syncMixinRefMap {
+    dependsOn compileJava, moveResources
+
+    doLast {
+        copy {
+            from "${buildDir}/tmp/compileJava/fdpclient.mixins.refmap.json"
+            into "${buildDir}/resources/main"
+        }
+
+        copy {
+            from "${buildDir}/tmp/compileJava/fdpclient.mixins.refmap.json"
+            into "${buildDir}/classes/java"
+        }
+    }
+}
+
+classes.dependsOn(moveResources, syncMixinRefMap)
 
 jar {
     manifest.attributes(
