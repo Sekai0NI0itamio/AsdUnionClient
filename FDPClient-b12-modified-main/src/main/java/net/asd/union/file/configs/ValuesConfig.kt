@@ -8,7 +8,6 @@ package net.asd.union.file.configs
 import com.google.gson.JsonObject
 import net.asd.union.FDPClient.commandManager
 import net.asd.union.FDPClient.moduleManager
-import net.asd.union.handler.cape.CapeService
 import net.asd.union.features.module.modules.client.BrandSpoofer.possibleBrands
 import net.asd.union.features.module.modules.client.TargetModule.animalValue
 import net.asd.union.features.module.modules.client.TargetModule.deadValue
@@ -84,12 +83,6 @@ class ValuesConfig(file: File) : FileConfig(file) {
                 key.equals("liquidchat", true) -> {
                     val jsonValue = value as JsonObject
                     }
-                key.equals("DonatorCape", true) -> {
-                    val jsonValue = value as JsonObject
-                    if (jsonValue.has("TransferCode")) {
-                        CapeService.knownToken = jsonValue["TransferCode"].asString
-                    }
-                }
                 key.equals("clientConfiguration", true) -> {
                     val jsonValue = value as JsonObject
                     if (jsonValue.has("EnabledClientTitle")) enabledClientTitle =
@@ -157,10 +150,6 @@ class ValuesConfig(file: File) : FileConfig(file) {
 
         val liquidChatObject = JsonObject()
         jsonObject.add("liquidchat", liquidChatObject)
-
-        val capeObject = JsonObject()
-        capeObject.addProperty("TransferCode", CapeService.knownToken)
-        jsonObject.add("DonatorCape", capeObject)
 
         val clientObject = JsonObject()
         val usernameForSave = SessionStorage.getUsernameForSave()

@@ -195,7 +195,6 @@
     "module.gapple.description": "Uses golden or enchanted apples during PVP.",
     "module.customModel.description": "Adds custom modelling for players.",
     "module.tntTrails.description": "Shows a TNT tracer.",
-    "module.capeManager.description": "Client cape manager.",
     "module.chatControl.description": "Controlling your chat, changing chat limits and stuff like that.",
     "module.discordRPCModule.description": "Shows client activity in your discord profile.",
     "module.hudDesigner.description": "Customising your hud.",

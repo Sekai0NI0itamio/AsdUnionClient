@@ -188,7 +188,6 @@
         "module.overrideRaycast": "Заменяет ваш рейкаст, основанный на ротациии рейкастом, основанным на ротации сервера.",
         "module.staffDetector.description": "Обнаруживает и оповещает игроку о стаффах(модераторах) на сервере",
         "module.brandSpoofer.description": "Заменяет ваш бренд клиента на выбранный для обхода серверов и прочего.",
-        "module.capeManager.description": "Менеджер клиентских плащей.",
         "module.chatControl.description": "Контроль над вашем чатом, изменение лимитов чата и прочего.",
         "module.discordRPC.description": "Показывает активность клиента в вашем дискорд профиле.",
         "module.hudDesigner.description": "Кастомизация вашего худа(Hud).",

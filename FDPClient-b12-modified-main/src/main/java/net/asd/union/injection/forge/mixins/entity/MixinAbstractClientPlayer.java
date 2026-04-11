@@ -5,12 +5,8 @@
  */
 package net.asd.union.injection.forge.mixins.entity;
 
-import net.asd.union.handler.cape.CapeAPI;
-import net.asd.union.handler.cape.CapeInfo;
 import net.asd.union.features.module.modules.visual.NameProtect;
 import net.asd.union.features.module.modules.visual.NoFOV;
-import net.asd.union.ui.client.gui.GuiCapeManager;
-import net.asd.union.utils.client.MinecraftInstance;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.init.Items;
@@ -29,24 +25,6 @@ import static net.asd.union.utils.client.MinecraftInstance.mc;
 @Mixin(AbstractClientPlayer.class)
 @SideOnly(Side.CLIENT)
 public abstract class MixinAbstractClientPlayer extends MixinEntityPlayer {
-
-    private CapeInfo capeInfo;
-
-    @Inject(method = "getLocationCape", at = @At("HEAD"), cancellable = true)
-    private void getCape(CallbackInfoReturnable<ResourceLocation> callbackInfoReturnable) {
-        if (capeInfo == null) {
-            CapeAPI.INSTANCE.loadCape(getUniqueID(), newCapeInfo -> {
-                capeInfo = newCapeInfo;
-                return null;
-            });
-        }
-        if (GuiCapeManager.INSTANCE.getCustomCape().get() && getGameProfile().getName().equalsIgnoreCase(MinecraftInstance.mc.thePlayer.getGameProfile().getName()))
-            callbackInfoReturnable.setReturnValue(GuiCapeManager.INSTANCE.getCapeLocation(GuiCapeManager.INSTANCE.getStyleValue().get()));
-
-        if (capeInfo != null && capeInfo.isCapeAvailable()) {
-            callbackInfoReturnable.setReturnValue(capeInfo.getResourceLocation());
-        }
-    }
 
     @Inject(method = "getFovModifier", at = @At("HEAD"), cancellable = true)
     private void getFovModifier(CallbackInfoReturnable<Float> callbackInfoReturnable) {

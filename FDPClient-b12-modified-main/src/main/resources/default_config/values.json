@@ -17,9 +17,6 @@
     "AutoReconnectDelay": 60000
   },
   "liquidchat": {},
-  "DonatorCape": {
-    "TransferCode": ""
-  },
   "clientConfiguration": {
     "EnabledClientTitle": true,
     "StylisedAlts": true,

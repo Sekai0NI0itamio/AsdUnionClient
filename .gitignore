@@ -11,6 +11,7 @@ run/
 .recovered-*.txt
 recovery/
 local-maven/
+github-build-output/
 FDPClient-b12-modified-main/.gradle/
 FDPClient-b12-modified-main/build/
 FDPClient-b12-modified-main/.auaci/

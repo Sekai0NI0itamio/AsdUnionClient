@@ -191,7 +191,6 @@
     "module.gapple.description": "Usa maçãs douradas ou encantadas durante o PVP.",
     "module.customModel.description": "Adiciona modelos personalizados para os jogadores.",
     "module.tntTrails.description": "Mostra uma linha de rastreamento do TNT.",
-    "module.capeManager.description": "Gerenciador de capas do cliente.",
     "module.chatControl.description": "Controla seu chat, alterando limites de chat e coisas do tipo.",
     "module.discordRPCModule.description": "Mostra a atividade do cliente no seu perfil do Discord.",
     "module.hudDesigner.description": "Personalizando seu HUD.",

@@ -22,7 +22,6 @@ import net.asd.union.handler.api.ClientUpdate.gitInfo
 import net.asd.union.handler.api.loadSettings
 import net.asd.union.handler.api.messageOfTheDay
 import net.asd.union.handler.api.reloadMessageOfTheDay
-import net.asd.union.handler.cape.CapeService
 import net.asd.union.handler.combat.CombatManager
 import net.asd.union.handler.lang.LanguageManager.loadLanguages
 import net.asd.union.handler.macro.MacroManager
@@ -151,7 +150,6 @@ object FDPClient {
             AntiSpawnLag
             CombatManager
             MacroManager
-            CapeService
             SessionStorage
             EntityCache
             ItemCache

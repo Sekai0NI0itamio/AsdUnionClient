@@ -10,6 +10,7 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import net.asd.union.FDPClient
+import net.asd.union.FDPClient.CLIENT_NAME
 import net.asd.union.FDPClient.background
 import net.asd.union.FDPClient.isStarting
 import net.asd.union.file.configs.*
@@ -28,7 +29,7 @@ object FileManager : MinecraftInstance, Iterable<FileConfig> by FILE_CONFIGS {
 
     private val sections = mutableListOf<ConfigSection>()
 
-    val dir = File(mc.mcDataDir, "FDPCLIENT")
+    val dir = File(mc.mcDataDir, CLIENT_NAME)
     val fontsDir = File(dir, "fonts")
     val settingsDir = File(dir, "settings")
     val themesDir = File(dir, "themes")

@@ -27,7 +27,7 @@ object ClientUtils : MinecraftInstance {
 
     var runTimeTicks = 0
 
-    val LOGGER: Logger = LogManager.getLogger("FDPCLIENT")
+    val LOGGER: Logger = LogManager.getLogger(CLIENT_NAME)
 
     fun disableFastRender() {
         fastRenderField?.let {
