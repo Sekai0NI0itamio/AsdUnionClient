@@ -34,6 +34,7 @@
     "module.hitBox.description": "Makes hitboxes of targets bigger.",
     "module.ignite.description": "Automatically sets targets around you on fire.",
     "module.killAura.description": "Automatically attacks targets around you.",
+    "module.smartKillAura.description": "KillAura preset that only attacks when targets can take damage (damage tick/i-frames).",
     "module.noFriends.description": "Allows you to attack friends.",
     "module.superKnockback.description": "Increases knockback dealt to other entities.",
     "module.teleportHit.description": "Allows to hit entities from far away.",

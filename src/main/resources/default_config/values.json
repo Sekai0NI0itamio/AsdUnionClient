@@ -1544,6 +1544,11 @@
     "Hide": false,
     "Reset": false
   },
+  "SmartKillAura": {
+    "OnlyInGame": true,
+    "Hide": false,
+    "Reset": false
+  },
   "KillAuraTargeter": {
     "RenderESP": true,
     "HitThroughEntities": true,

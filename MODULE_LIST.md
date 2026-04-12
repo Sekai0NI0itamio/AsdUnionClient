@@ -40,6 +40,7 @@ This document provides a comprehensive list of all modules available in the Mine
 - **ForwardTrack**: Predicts enemy movement for better aim
 - **KeepSprint**: Maintains sprint while attacking
 - **KillAura**: Automatically attacks nearby entities
+- **SmartKillAura**: KillAura that only attacks when the target can take damage (damage tick/i-frames)
 - **KillAuraTargeter**: Advanced targeting for KillAura
 - **ProjectileAimbot**: Aims projectiles automatically
 - **SuperKnockback**: Enhances knockback effects

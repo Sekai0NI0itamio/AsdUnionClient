@@ -58,6 +58,9 @@
     "KillAura": {
       "Settings": false
     },
+    "SmartKillAura": {
+      "Settings": false
+    },
     "KillAuraTargeter": {
       "Settings": false
     },

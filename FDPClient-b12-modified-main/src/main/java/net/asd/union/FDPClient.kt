@@ -209,15 +209,9 @@ object FDPClient {
             // Load background
             FileManager.loadBackground()
 
-            // Load configs AFTER all initialization is complete
-            // This ensures settings are loaded after everything is ready
-            loadAllConfigs()
-            SessionStorage.applySavedUsername()
-            
-            // Force refresh ConnectToRouter status after loading settings
-            ConnectToRouter.refreshStatus(false)
-            
-            LOGGER.info("Configuration loaded successfully")
+            // Configs are now loaded earlier in MixinMinecraft.loadConfigsEarly()
+            // This ensures saved settings are applied BEFORE Minecraft sets defaults
+            LOGGER.info("Configuration already loaded successfully (early initialization)")
         } catch (e: Exception) {
             LOGGER.error("Failed to start client: ${e.message}")
         } finally {

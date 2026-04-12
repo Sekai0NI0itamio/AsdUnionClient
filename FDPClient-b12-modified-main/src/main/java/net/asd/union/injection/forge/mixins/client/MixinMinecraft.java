@@ -120,7 +120,31 @@ public abstract class MixinMinecraft {
         StartupProgressRenderer.render();
         liquidBounce$preloadFuture.get();
 
+        // Load configs EARLIER to ensure saved settings are applied before Minecraft sets defaults
         FDPClient.INSTANCE.startClient();
+    }
+
+    @Inject(method = "startGame", at = @At(value = "HEAD"))
+    private void loadConfigsEarly(CallbackInfo callbackInfo) {
+        // Load configs as early as possible to prevent default values from overwriting saved settings
+        // This ensures saved account and router settings are applied BEFORE Minecraft sets defaults
+        try {
+            net.asd.union.utils.client.ClientUtils.LOGGER.info("[EarlyConfig] Loading configs before Minecraft initialization...");
+            
+            // Load all configuration files first - this includes accounts.json, values.json, etc.
+            // ValuesConfig.loadConfig() will automatically call ConnectToRouter.loadEnabledState(savedValue)
+            net.asd.union.file.FileManager.loadAllConfigs();
+            
+            // Apply saved username BEFORE Minecraft can set default "itamio"
+            net.asd.union.handler.other.SessionStorage.applySavedUsername();
+            
+            // Refresh router status with the loaded settings (ConnectToRouter.enabled should already be set)
+            net.asd.union.handler.network.ConnectToRouter.refreshStatus(false);
+            
+            net.asd.union.utils.client.ClientUtils.LOGGER.info("[EarlyConfig] Successfully loaded configs before Minecraft initialization");
+        } catch (Exception e) {
+            net.asd.union.utils.client.ClientUtils.LOGGER.error("[EarlyConfig] Failed to load configs early", e);
+        }
     }
 
     @Inject(method = "startGame", at = @At(value = "NEW", target = "net/minecraft/client/renderer/texture/TextureManager"))
