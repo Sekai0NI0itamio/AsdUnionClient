@@ -16,8 +16,10 @@ import net.asd.union.config.boolean
 import net.asd.union.config.int
 import net.asd.union.event.*
 import net.asd.union.event.EventManager.call
+import net.asd.union.event.ChatEvent
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
+import net.asd.union.file.FileManager
 import net.asd.union.file.FileManager.accountsConfig
 import net.asd.union.ui.client.hud.HUD.addNotification
 import net.asd.union.ui.client.hud.element.elements.Notification
@@ -31,12 +33,14 @@ import net.minecraft.network.play.server.S40PacketDisconnect
 import net.minecraft.network.play.server.S45PacketTitle
 import net.minecraft.util.ChatComponentText
 import net.minecraft.util.Session
+import java.io.File
 
 object AutoAccount :
     Module("AutoAccount", Category.CLIENT, subjective = true, gameDetecting = false, hideModule = false) {
 
     private val register by boolean("AutoRegister", true)
     private val login by boolean("AutoLogin", true)
+    private val recordPasswords by boolean("RecordPasswords", true)
 
     // Gamster requires 8 chars+
     private val passwordValue = object : TextValue("Password", "zywl1337#") {
@@ -64,8 +68,8 @@ object AutoAccount :
     }
     private val password by passwordValue
 
-    // Needed for Gamster
-    private val sendDelay by int("SendDelay", 250, 0..500) { passwordValue.isSupported() }
+    // Delay before sending commands
+    private val sendDelay by int("SendDelay", 1000, 0..5000) { passwordValue.isSupported() }
 
     private val autoSession by boolean("AutoSession", false)
     private val startupValue = boolean("RandomAccountOnStart", false) { autoSession }
@@ -96,6 +100,86 @@ object AutoAccount :
 
     private var status = Status.WAITING
 
+    // Password storage system
+    private val serverPasswords = mutableMapOf<String, String>() // serverIP -> password
+    private val accountPasswords = mutableMapOf<String, String>() // accountName -> password
+    
+    // Load passwords from config on module initialization
+    override fun onInitialize() {
+        super.onInitialize()
+        loadPasswords()
+    }
+    
+    // Save passwords to config on module disable
+    override fun onDisable() {
+        super.onDisable()
+        savePasswords()
+    }
+    
+    private fun loadPasswords() {
+        try {
+            // Load from config file
+            val passwordsFile = File(FileManager.dir, "server_passwords.json")
+            if (passwordsFile.exists()) {
+                val json = FileManager.PRETTY_GSON.fromJson(passwordsFile.reader(), Map::class.java)
+                serverPasswords.clear()
+                accountPasswords.clear()
+                
+                json?.let { data ->
+                    val serverData = data["serverPasswords"] as? Map<*, *>
+                    val accountData = data["accountPasswords"] as? Map<*, *>
+                    
+                    serverData?.forEach { (key, value) ->
+                        if (key is String && value is String) {
+                            serverPasswords[key] = value
+                        }
+                    }
+                    
+                    accountData?.forEach { (key, value) ->
+                        if (key is String && value is String) {
+                            accountPasswords[key] = value
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore errors, start with empty password storage
+        }
+    }
+    
+    private fun savePasswords() {
+        try {
+            val passwordsFile = File(FileManager.dir, "server_passwords.json")
+            val data = mapOf(
+                "serverPasswords" to serverPasswords,
+                "accountPasswords" to accountPasswords
+            )
+            passwordsFile.writeText(FileManager.PRETTY_GSON.toJson(data))
+        } catch (e: Exception) {
+            // Ignore save errors
+        }
+    }
+    
+    private fun getStoredPassword(serverIP: String?, accountName: String): String? {
+        // First check server-specific password
+        serverIP?.let { ip ->
+            serverPasswords[ip]?.let { return it }
+        }
+        
+        // Then check account-specific password
+        return accountPasswords[accountName]
+    }
+    
+    private fun storePassword(serverIP: String?, accountName: String, password: String) {
+        if (recordPasswords) {
+            serverIP?.let { ip ->
+                serverPasswords[ip] = password
+            }
+            accountPasswords[accountName] = password
+            savePasswords()
+        }
+    }
+
     private fun relog(info: String = "") {
         // Disconnect from server
         if (mc.currentServerData != null && mc.theWorld != null)
@@ -117,19 +201,34 @@ object AutoAccount :
 
     private fun respond(msg: String) = when {
         register && "/reg" in msg -> {
+            val serverIP = mc.currentServerData?.serverIP
+            val accountName = mc.session.username
+            val storedPassword = getStoredPassword(serverIP, accountName)
+            
             addNotification(Notification("Trying to register.", "Trying to Register", Type.INFO))
             SharedScopes.IO.launch {
                 delay(sendDelay.toLong())
-                mc.thePlayer.sendChatMessage("/register $password $password")
+                if (storedPassword != null) {
+                    // Use stored password for login instead of register
+                    mc.thePlayer.sendChatMessage("/login $storedPassword")
+                } else {
+                    // Use configured password for registration
+                    mc.thePlayer.sendChatMessage("/register $password $password")
+                }
             }
             true
         }
 
         login && "/log" in msg -> {
+            val serverIP = mc.currentServerData?.serverIP
+            val accountName = mc.session.username
+            val storedPassword = getStoredPassword(serverIP, accountName)
+            val passwordToUse = storedPassword ?: password
+            
             addNotification(Notification("Trying to log in.", "Trying to log in.", Type.INFO))
             SharedScopes.IO.launch {
                 delay(sendDelay.toLong())
-                mc.thePlayer.sendChatMessage("/login $password")
+                mc.thePlayer.sendChatMessage("/login $passwordToUse")
             }
             true
         }
@@ -187,6 +286,25 @@ object AutoAccount :
 
     }
 
+    val onChatMessage = handler<ChatEvent> { event ->
+        if (!recordPasswords || !isEnabled) return@handler
+        
+        val message = event.message
+        if (message.startsWith("/register ")) {
+            // Extract password from /register command
+            val parts = message.split(" ")
+            if (parts.size >= 3) {
+                val passwordUsed = parts[2] // Second parameter is the password confirmation
+                val serverIP = mc.currentServerData?.serverIP
+                val accountName = mc.session.username
+                
+                // Store the password for future use
+                storePassword(serverIP, accountName, passwordUsed)
+                addNotification(Notification("Password recorded for $accountName", "Password Saved", Type.SUCCESS))
+            }
+        }
+    }
+
     val onWorld = handler<WorldEvent> { event ->
         if (!passwordValue.isSupported()) return@handler
 
@@ -212,7 +330,17 @@ object AutoAccount :
     // Login succeeded
     private fun success() {
         if (status == Status.SENT_COMMAND) {
-            addNotification(Notification("Logged in as ${mc.session.username}", "Logged", Type.SUCCESS))
+            val accountName = mc.session.username
+            val serverIP = mc.currentServerData?.serverIP
+            
+            // Store the password if we just registered successfully
+            if (register && status == Status.SENT_COMMAND) {
+                storePassword(serverIP, accountName, password)
+                addNotification(Notification("Registered and logged in as $accountName", "Registered", Type.SUCCESS))
+            } else {
+                addNotification(Notification("Logged in as $accountName", "Logged", Type.SUCCESS))
+            }
+            
             // Stop waiting for response
             status = Status.STOPPED
         }
