@@ -26,6 +26,8 @@ import net.minecraft.util.BlockPos
 import kotlin.math.truncate
 
 object Tower : MinecraftInstance, Listenable {
+    override val parent: Listenable?
+        get() = Scaffold
 
     val towerModeValues = choices(
         "TowerMode",
@@ -43,44 +45,50 @@ object Tower : MinecraftInstance, Listenable {
             "Vulcan2.9.0",
             "Pulldown"
         ),
-        "None"
-    )
+        "Jump"
+    ) { Scaffold.scaffoldMode != "JumpBridge" }
 
-    val stopWhenBlockAboveValues = boolean("StopWhenBlockAbove", false) { towerModeValues.get() != "None" }
+    val stopWhenBlockAboveValues =
+        boolean("StopWhenBlockAbove", false) { towerModeValues.get() != "None" && Scaffold.scaffoldMode != "JumpBridge" }
 
-    val onJumpValues = boolean("TowerOnJump", true) { towerModeValues.get() != "None" }
-    val notOnMoveValues = boolean("TowerNotOnMove", false) { towerModeValues.get() != "None" }
+    val onJumpValues = boolean("TowerOnJump", true) { towerModeValues.get() != "None" && Scaffold.scaffoldMode != "JumpBridge" }
+    val notOnMoveValues = boolean("TowerNotOnMove", true) { towerModeValues.get() != "None" && Scaffold.scaffoldMode != "JumpBridge" }
 
     // Jump mode
-    val jumpMotionValues = FloatValue("JumpMotion", 0.42f, 0.3681289f..0.79f) { towerModeValues.get() == "MotionJump" }
+    val jumpMotionValues =
+        FloatValue("JumpMotion", 0.42f, 0.3681289f..0.79f) { towerModeValues.get() == "MotionJump" && Scaffold.scaffoldMode != "JumpBridge" }
     val jumpDelayValues = int(
         "JumpDelay",
         0,
         0..20
-    ) { towerModeValues.get() == "MotionJump" || towerModeValues.get() == "Jump" }
+    ) { (towerModeValues.get() == "MotionJump" || towerModeValues.get() == "Jump") && Scaffold.scaffoldMode != "JumpBridge" }
 
     // Constant Motion values
     val constantMotionValues = FloatValue(
         "ConstantMotion",
         0.42f,
         0.1f..1f
-    ) { towerModeValues.get() == "ConstantMotion" }
+    ) { towerModeValues.get() == "ConstantMotion" && Scaffold.scaffoldMode != "JumpBridge" }
     val constantMotionJumpGroundValues = FloatValue(
         "ConstantMotionJumpGround",
         0.79f,
         0.76f..1f
-    ) { towerModeValues.get() == "ConstantMotion" }
-    val constantMotionJumpPacketValues = boolean("JumpPacket", true) { towerModeValues.get() == "ConstantMotion" }
+    ) { towerModeValues.get() == "ConstantMotion" && Scaffold.scaffoldMode != "JumpBridge" }
+    val constantMotionJumpPacketValues =
+        boolean("JumpPacket", true) { towerModeValues.get() == "ConstantMotion" && Scaffold.scaffoldMode != "JumpBridge" }
 
     // Pull-down
-    val triggerMotionValues = FloatValue("TriggerMotion", 0.1f, 0.0f..0.2f) { towerModeValues.get() == "Pulldown" }
-    val dragMotionValues = FloatValue("DragMotion", 1.0f, 0.1f..1.0f) { towerModeValues.get() == "Pulldown" }
+    val triggerMotionValues =
+        FloatValue("TriggerMotion", 0.1f, 0.0f..0.2f) { towerModeValues.get() == "Pulldown" && Scaffold.scaffoldMode != "JumpBridge" }
+    val dragMotionValues =
+        FloatValue("DragMotion", 1.0f, 0.1f..1.0f) { towerModeValues.get() == "Pulldown" && Scaffold.scaffoldMode != "JumpBridge" }
 
     // Teleport
-    val teleportHeightValues = FloatValue("TeleportHeight", 1.15f, 0.1f..5f) { towerModeValues.get() == "Teleport" }
-    val teleportDelayValues = int("TeleportDelay", 0, 0..20) { towerModeValues.get() == "Teleport" }
-    val teleportGroundValues = boolean("TeleportGround", true) { towerModeValues.get() == "Teleport" }
-    val teleportNoMotionValues = boolean("TeleportNoMotion", false) { towerModeValues.get() == "Teleport" }
+    val teleportHeightValues =
+        FloatValue("TeleportHeight", 1.15f, 0.1f..5f) { towerModeValues.get() == "Teleport" && Scaffold.scaffoldMode != "JumpBridge" }
+    val teleportDelayValues = int("TeleportDelay", 0, 0..20) { towerModeValues.get() == "Teleport" && Scaffold.scaffoldMode != "JumpBridge" }
+    val teleportGroundValues = boolean("TeleportGround", true) { towerModeValues.get() == "Teleport" && Scaffold.scaffoldMode != "JumpBridge" }
+    val teleportNoMotionValues = boolean("TeleportNoMotion", false) { towerModeValues.get() == "Teleport" && Scaffold.scaffoldMode != "JumpBridge" }
 
     var isTowering = false
 
@@ -95,6 +103,10 @@ object Tower : MinecraftInstance, Listenable {
         val player = mc.thePlayer ?: return@handler
 
         isTowering = false
+
+        if (Scaffold.scaffoldMode == "JumpBridge") {
+            return@handler
+        }
 
         if (towerModeValues.get() == "None" || notOnMoveValues.get() && player.isMoving ||
             onJumpValues.get() && !mc.gameSettings.keyBindJump.isKeyDown
@@ -121,6 +133,10 @@ object Tower : MinecraftInstance, Listenable {
 
     // Handle jump events
     val onJump = handler<JumpEvent> { event ->
+        if (Scaffold.scaffoldMode == "JumpBridge") {
+            return@handler
+        }
+
         if (onJumpValues.get()) {
             if (Scaffold.scaffoldMode == "GodBridge" && (Scaffold.jumpAutomatically) || !Scaffold.shouldJumpOnInput)
                 return@handler
