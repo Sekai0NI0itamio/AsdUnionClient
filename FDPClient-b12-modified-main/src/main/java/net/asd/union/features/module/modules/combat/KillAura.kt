@@ -78,8 +78,11 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
     private val simulateCooldown by boolean("SimulateCooldown", false)
     private val simulateDoubleClicking by boolean("SimulateDoubleClicking", false) { !simulateCooldown }
 
+    private const val BACKGROUND_TARGET_CACHE_INTERVAL = 4
+    private const val TARGET_CACHE_PADDING = 1.5
+
     // CPS - Attack speed
-    private val maxCPSValue = object : IntegerValue("MaxCPS", 8, 1..20) {
+    private val maxCPSValue = object : IntegerValue("MaxCPS", 8, 0..50) {
         override fun onChange(oldValue: Int, newValue: Int) = newValue.coerceAtLeast(minCPS)
 
         override fun onChanged(oldValue: Int, newValue: Int) {
@@ -91,7 +94,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
 
     private val maxCPS by maxCPSValue
 
-    private val minCPS: Int by object : IntegerValue("MinCPS", 5, 1..20) {
+    private val minCPS: Int by object : IntegerValue("MinCPS", 5, 0..50) {
         override fun onChange(oldValue: Int, newValue: Int) = newValue.coerceAtMost(maxCPS)
 
         override fun onChanged(oldValue: Int, newValue: Int) {
@@ -333,7 +336,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
     private val attackTimer = MSTimer()
     private var attackDelay = 0
     private var clicks = 0
-    private var attackTickTimes = mutableListOf<Pair<MovingObjectPosition, Int>>()
+    private var lastAttackTickData: Pair<MovingObjectPosition, Int>? = null
 
     // Container Delay
     private var containerOpen = -1L
@@ -354,6 +357,10 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
 
     // text
     private val textElement = Text()
+
+    // Target caching
+    private var targetCacheTicks = 0
+    private val targetCandidates = mutableListOf<EntityLivingBase>()
     /**
      * Disable kill aura module
      */
@@ -361,7 +368,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
         target = null
         hittable = false
         prevTargetEntities.clear()
-        attackTickTimes.clear()
+        lastAttackTickData = null
         attackTimer.reset()
         clicks = 0
 
@@ -376,6 +383,10 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
 
         synchronized(swingFails) {
             swingFails.clear()
+        }
+
+        if (state) {
+            refreshTargetCandidates(force = true)
         }
     }
 
@@ -397,13 +408,19 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
     }
 
     val onWorldChange = handler<WorldEvent> {
-        attackTickTimes.clear()
+        lastAttackTickData = null
+        targetCandidates.clear()
+        targetCacheTicks = 0
 
         if (blinkAutoBlock && BlinkUtils.isBlinking) BlinkUtils.unblink()
 
         synchronized(swingFails) {
             swingFails.clear()
         }
+    }
+
+    val onBackgroundTick = handler<GameTickEvent>(always = true, priority = 1) {
+        refreshTargetCandidates()
     }
 
     /**
@@ -625,7 +642,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
                     }
 
                     val shouldEnterBlockBreakProgress =
-                        !shouldDelayClick(it.typeOfHit) || attackTickTimes.lastOrNull()?.first?.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK
+                        !shouldDelayClick(it.typeOfHit) || lastAttackTickData?.first?.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK
 
                     if (shouldEnterBlockBreakProgress) {
                         // Close inventory when open
@@ -644,7 +661,8 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
                     }
 
                     if (!shouldDelayClick(it.typeOfHit)) {
-                        attackTickTimes += it to runTimeTicks
+                        val previousAttackTickData = lastAttackTickData
+                        lastAttackTickData = it to runTimeTicks
 
                         if (it.typeOfHit.isEntity) {
                             val entity = it.entityHit
@@ -652,7 +670,9 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
                             // Use own function instead of clickMouse() to maintain keep sprint, auto block, etc
                             if (entity is EntityLivingBase && isSelected(entity, true)) {
                                 attackEntity(entity, isLastClick)
-                            } else attackTickTimes -= it to runTimeTicks
+                            } else {
+                                lastAttackTickData = previousAttackTickData
+                            }
                         } else {
                             // Imitate game click
                             mc.clickMouse()
@@ -747,42 +767,39 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
     private fun updateTarget() {
         if (shouldPrioritize()) return
 
-        // Reset fixed target to null
         target = null
 
-        // Check if KillAuraTargeter is active
         val killAuraTargeter = net.asd.union.features.module.modules.combat.KillAuraTargeter
         if (killAuraTargeter.state) {
-            // If targeter is in empty state, don't attack anything
-            if (killAuraTargeter.isEmpty()) {
-                return
-            }
-            
-            // If targeter has a target, use it
-            if (killAuraTargeter.isTargetSelected()) {
-                val targeterTarget = killAuraTargeter.getTargetEntity()
-                if (targeterTarget != null && targeterTarget.isEntityAlive) {
-                    // Use the targeter's target directly, bypassing normal range/FOV checks
-                    if (updateRotations(targeterTarget)) {
-                        target = targeterTarget
-                        return
-                    }
+            val targeterTarget = killAuraTargeter.getTargetEntity()
+            if (targeterTarget != null && targeterTarget.isEntityAlive) {
+                if (updateRotations(targeterTarget)) {
+                    target = targeterTarget
                 }
             }
+            return
+        }
+
+        if (targetCandidates.isEmpty()) {
+            refreshTargetCandidates(force = true)
         }
 
         val switchMode = targetMode == "Switch"
+        val useBacktrackDistance = Backtrack.handleEvents() && Backtrack.mode == "Legacy"
 
-        val theWorld = mc.theWorld
-        val thePlayer = mc.thePlayer
+        val thePlayer = mc.thePlayer ?: return
 
         var bestTarget: EntityLivingBase? = null
         var bestValue: Double? = null
 
-        for (entity in theWorld.loadedEntityList) {
-            if (entity !is EntityLivingBase || !isEnemy(entity) || switchMode && entity.entityId in prevTargetEntities) continue
+        for (entity in targetCandidates) {
+            if (!isEnemy(entity) || switchMode && entity.entityId in prevTargetEntities) continue
 
-            val distance = Backtrack.runWithNearestTrackedDistance(entity) { thePlayer.getDistanceToEntityBox(entity) }
+            val distance = if (useBacktrackDistance) {
+                Backtrack.runWithNearestTrackedDistance(entity) { thePlayer.getDistanceToEntityBox(entity) }
+            } else {
+                thePlayer.getDistanceToEntityBox(entity)
+            }
 
             if (switchMode && distance > range && prevTargetEntities.isNotEmpty()) continue
 
@@ -831,6 +848,40 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
         }
     }
 
+    private fun refreshTargetCandidates(force: Boolean = false) {
+        val world = mc.theWorld
+        val player = mc.thePlayer
+
+        if (world == null || player == null) {
+            targetCandidates.clear()
+            targetCacheTicks = 0
+            return
+        }
+
+        val updateInterval = if (state) 1 else BACKGROUND_TARGET_CACHE_INTERVAL
+
+        if (!force) {
+            targetCacheTicks++
+            if (targetCacheTicks < updateInterval) {
+                return
+            }
+        }
+
+        targetCacheTicks = 0
+        targetCandidates.clear()
+
+        val useRangeFilter = !Backtrack.handleEvents() || Backtrack.mode != "Legacy"
+
+        val cacheRange = maxRange + TARGET_CACHE_PADDING
+        val cacheRangeSq = cacheRange * cacheRange
+
+        for (entity in world.loadedEntityList) {
+            if (entity !is EntityLivingBase || entity === player || entity is EntityArmorStand || !entity.isEntityAlive) continue
+            if (useRangeFilter && player.getDistanceSqToEntity(entity) > cacheRangeSq) continue
+            targetCandidates += entity
+        }
+    }
+
     /**
      * Check if [entity] is selected as enemy with current target options and other modules
      */
@@ -864,7 +915,8 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
         }
 
         if (!blinkAutoBlock || !BlinkUtils.isBlinking) {
-            val affectSprint = false.takeIf { keepSprint }
+            val keepSprintModuleActive = FDPClient.moduleManager["KeepSprint"]?.handleEvents() == true
+            val affectSprint = false.takeIf { keepSprintModuleActive || keepSprint }
 
             thePlayer.attackEntityWithModifiedSprint(entity, affectSprint) { if (swing) thePlayer.swingItem() }
         }
@@ -953,7 +1005,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
         return true
     }
 
-    private fun ticksSinceClick() = runTimeTicks - (attackTickTimes.lastOrNull()?.second ?: 0)
+    private fun ticksSinceClick() = runTimeTicks - (lastAttackTickData?.second ?: 0)
 
     /**
      * Check if enemy is hittable with current rotations
@@ -1163,7 +1215,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
             return false
         }
 
-        val lastAttack = attackTickTimes.lastOrNull()
+        val lastAttack = lastAttackTickData
 
         return lastAttack != null && lastAttack.first.typeOfHit != currentType && runTimeTicks - lastAttack.second <= hitDelayTicks
     }
@@ -1248,8 +1300,11 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
     }
 
     private fun shouldCancelDueToModuleState(): Boolean {
-        return (noScaffold && FDPClient.moduleManager[Scaffold::class.java.simpleName]?.state == true)
-                || (onSwording && mc.thePlayer.heldItem?.item !is ItemSword)
+        if (blinkCheck && FDPClient.moduleManager["Blink"]?.state == true) return true
+        if (noScaffold && FDPClient.moduleManager[Scaffold::class.java.simpleName]?.state == true) return true
+        if (noFly && FDPClient.moduleManager["Flight"]?.state == true) return true
+        if (onSwording && mc.thePlayer.heldItem?.item !is ItemSword) return true
+        return false
     }
 
     private fun isEatingDisallowed(): Boolean {

@@ -5,298 +5,523 @@
  */
 package net.asd.union.features.module.modules.combat
 
+import net.asd.union.config.boolean
 import net.asd.union.config.choices
 import net.asd.union.config.float
-import net.asd.union.config.boolean
-import net.asd.union.event.*
+import net.asd.union.config.int
+import net.asd.union.event.EventState
+import net.asd.union.event.MotionEvent
+import net.asd.union.event.Render2DEvent
+import net.asd.union.event.Render3DEvent
+import net.asd.union.event.WorldEvent
+import net.asd.union.event.handler
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
+import net.asd.union.ui.font.Fonts
+import net.asd.union.utils.extensions.center
 import net.asd.union.utils.extensions.eyes
-import net.asd.union.utils.extensions.getDistanceToEntityBox
+import net.asd.union.utils.extensions.hitBox
 import net.asd.union.utils.extensions.isClientFriend
-import net.asd.union.utils.extensions.rotation
-import net.asd.union.utils.rotation.RaycastUtils
-import net.asd.union.utils.rotation.RotationUtils
 import net.asd.union.utils.render.RenderUtils
-import net.minecraft.client.entity.EntityPlayerSP
 import net.minecraft.entity.Entity
 import net.minecraft.entity.EntityLivingBase
 import net.minecraft.entity.player.EntityPlayer
 import net.minecraft.util.AxisAlignedBB
-import net.minecraft.util.BlockPos
 import net.minecraft.util.MovingObjectPosition
 import net.minecraft.util.Vec3
 import org.lwjgl.input.Keyboard
 import org.lwjgl.opengl.GL11.*
 import java.awt.Color
-import kotlin.math.*
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.KEY_NONE) {
 
     private val renderEspValue by boolean("RenderESP", true)
+    private val renderStyleValue by choices("RenderStyle", arrayOf("Outline", "TracerBox"), "TracerBox") { renderEspValue }
     private val hitThroughEntitiesValue by boolean("HitThroughEntities", true)
     private val onlyPlayerValue by boolean("OnlyPlayer", true)
     private val respectFriendsValue by boolean("RespectFriends", true)
     private val setTargetMode by choices("SetTargetToView", arrayOf("Once", "Always"), "Once")
-    private val maxFOV by float("MaxFOV", 10f, 10f..180f)
+    private val updateIntervalTicks by int("UpdateIntervalTicks", 2, 1..20) { setTargetMode == "Always" }
+    private val maxFOV by float("MaxFOV", 90f, 10f..180f)
     private val throughWalls by boolean("ThroughWalls", true)
     private val maxRange by float("MaxRange", 10f, 3f..20f)
     private val hitboxMultiplier by float("HitboxMultiplier", 1.1f, 1f..20f)
 
-    private var _targetEntity: EntityLivingBase? = null
+    private var targetEntity: EntityLivingBase? = null
     private var targetName: String = ""
-    private var isEmpty: Boolean = false
+    private var emptyState: Boolean = false
+
+    private var updateTickCounter = 0
+    private var infoTickCounter = 0
+    private var lastRenderInfo: Triple<String, String, String> = Triple("None", "Unable To determine", "0")
 
     override fun onEnable() {
-        _targetEntity = null
-        targetName = ""
-        isEmpty = false
+        resetState(clearInfo = true)
 
-        // If mode is "Once", set the target immediately upon enabling
         if (setTargetMode == "Once") {
             updateTarget()
         }
     }
 
     override fun onDisable() {
-        _targetEntity = null
-        targetName = ""
-        isEmpty = false
+        resetState(clearInfo = true)
+    }
+
+    val onWorld = handler<WorldEvent> {
+        clearTarget()
     }
 
     val onMotion = handler<MotionEvent> { event ->
-        if (event.eventState.name == "POST") {
-            // Only update target if mode is "Always"
-            if (setTargetMode == "Always") {
+        if (!state || event.eventState != EventState.POST) return@handler
+
+        validateCurrentTarget()
+
+        if (setTargetMode == "Always") {
+            updateTickCounter++
+
+            val shouldUpdate = targetEntity == null || updateTickCounter >= updateIntervalTicks
+            if (shouldUpdate) {
+                updateTickCounter = 0
                 updateTarget()
             }
         }
     }
 
-    // Render with low priority to ensure it renders after other ESP modules
+    val onRender2D = handler<Render2DEvent> {
+        if (!state) return@handler
+
+        infoTickCounter++
+        if (infoTickCounter >= 20) {
+            infoTickCounter = 0
+
+            val target = targetEntity
+            if (target != null && target.isEntityAlive) {
+                val health = target.health.roundToInt().toString()
+                val distance = (mc.thePlayer?.let { it.getDistanceToEntity(target).roundToInt() } ?: 0).toString()
+                lastRenderInfo = Triple(target.name, health, distance)
+            } else {
+                lastRenderInfo = Triple("None", "Unable To determine", "0")
+            }
+        }
+
+        val font = Fonts.font40
+        var posX = 5f
+        var posY = 5f
+        val lineHeight = font.FONT_HEIGHT + 2
+
+        font.drawStringWithShadow("Attacking Player: §6${lastRenderInfo.first}", posX, posY, Color.WHITE.rgb)
+        posY += lineHeight.toFloat()
+        font.drawStringWithShadow("Approximated Health of Player: §6${lastRenderInfo.second}", posX, posY, Color.WHITE.rgb)
+        posY += lineHeight.toFloat()
+        font.drawStringWithShadow("Distance of Player to Self: §6${lastRenderInfo.third}", posX, posY, Color.WHITE.rgb)
+    }
+
     val onRender3D = handler<Render3DEvent>(priority = -10) { event ->
-        if (!state || !renderEspValue || _targetEntity == null) return@handler
-        
-        val entity = _targetEntity ?: return@handler
-        
-        // Ensure entity is still valid and alive
+        if (!state || !renderEspValue) return@handler
+
+        val entity = targetEntity ?: return@handler
         if (!entity.isEntityAlive) return@handler
 
-        try {
-            glPushMatrix()
-            glPushAttrib(GL_ALL_ATTRIB_BITS)
-            
-            // Disable depth test to render through walls
-            glDisable(GL_DEPTH_TEST)
-            glDepthMask(false)
-            
-            // Enable blending for smooth rendering
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-            
-            // Disable texture and lighting
-            glDisable(GL_TEXTURE_2D)
-            glDisable(GL_LIGHTING)
-            
-            // Enable line smoothing for better appearance
-            glEnable(GL_LINE_SMOOTH)
-            glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
+        val renderBox = entity.entityBoundingBox
 
-            // Calculate interpolated entity position
-            val x = entity.lastTickPosX + (entity.posX - entity.lastTickPosX) * event.partialTicks - mc.renderManager.renderPosX
-            val y = entity.lastTickPosY + (entity.posY - entity.lastTickPosY) * event.partialTicks - mc.renderManager.renderPosY
-            val z = entity.lastTickPosZ + (entity.posZ - entity.lastTickPosZ) * event.partialTicks - mc.renderManager.renderPosZ
+        val partial = event.partialTicks.toDouble()
+        val interpX = entity.lastTickPosX + (entity.posX - entity.lastTickPosX) * partial
+        val interpY = entity.lastTickPosY + (entity.posY - entity.lastTickPosY) * partial
+        val interpZ = entity.lastTickPosZ + (entity.posZ - entity.lastTickPosZ) * partial
 
-            val entityBox = entity.entityBoundingBox
+        val offsetX = interpX - entity.posX - mc.renderManager.renderPosX
+        val offsetY = interpY - entity.posY - mc.renderManager.renderPosY
+        val offsetZ = interpZ - entity.posZ - mc.renderManager.renderPosZ
 
-            // Create adjusted bounding box
-            val adjustedBox = AxisAlignedBB.fromBounds(
-                entityBox.minX - entity.posX + x - 0.05,
-                entityBox.minY - entity.posY + y,
-                entityBox.minZ - entity.posZ + z - 0.05,
-                entityBox.maxX - entity.posX + x + 0.05,
-                entityBox.maxY - entity.posY + y + 0.15,
-                entityBox.maxZ - entity.posZ + z + 0.05
-            )
+        val adjustedBox = renderBox.offset(offsetX, offsetY, offsetZ)
+        val renderTracerBox = renderStyleValue == "TracerBox"
 
-            // Set red color with full opacity
-            glColor4f(1.0f, 0.0f, 0.0f, 1.0f)
-            
-            // Set line width
-            glLineWidth(4f)
-            
-            // Draw the bounding box
-            RenderUtils.drawSelectionBoundingBox(adjustedBox)
-            
-            // Restore GL state
-            glEnable(GL_DEPTH_TEST)
-            glDepthMask(true)
-            glDisable(GL_LINE_SMOOTH)
-            glEnable(GL_TEXTURE_2D)
-            glDisable(GL_BLEND)
-            
-            glPopAttrib()
-            glPopMatrix()
-        } catch (e: Exception) {
-            // Silently catch any rendering exceptions to prevent crashes
+        glPushMatrix()
+        glPushAttrib(GL_ALL_ATTRIB_BITS)
+
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        glDisable(GL_TEXTURE_2D)
+        glDisable(GL_DEPTH_TEST)
+        glDepthMask(false)
+
+        glColor4f(1f, 0f, 0f, 1f)
+        glLineWidth(2f)
+        RenderUtils.drawSelectionBoundingBox(adjustedBox)
+
+        if (renderTracerBox) {
+            glColor4f(1f, 0f, 0f, 0.18f)
+            RenderUtils.drawFilledBox(adjustedBox)
+            drawTargetTracer(entity, event.partialTicks)
         }
+
+        glDepthMask(true)
+        glEnable(GL_DEPTH_TEST)
+        glEnable(GL_TEXTURE_2D)
+        glDisable(GL_BLEND)
+
+        glPopAttrib()
+        glPopMatrix()
     }
 
     private fun updateTarget() {
-        val player = mc.thePlayer ?: return
-        val world = mc.theWorld ?: return
+        val player = mc.thePlayer ?: run {
+            clearTarget()
+            return
+        }
+        val world = mc.theWorld ?: run {
+            clearTarget()
+            return
+        }
 
-        // Get all loaded entities from the server/world
-        val allEntities = world.loadedEntityList
-        
-        var bestTarget: EntityLivingBase? = null
-        var bestDistance = Double.MAX_VALUE
+        val eyes = player.eyes
+        val lookVec = normalizedLookVector(player.rotationYaw, player.rotationPitch) ?: run {
+            clearTarget()
+            return
+        }
 
-        // Get player's eye position and look direction
-        val playerEyes = player.eyes
-        val lookVec = getVectorForRotation(player.rotationYaw, player.rotationPitch)
+        val range = maxRange.toDouble()
+        val maxRangeSq = range * range
+        val maxFovCos = cos(Math.toRadians(maxFOV.toDouble()))
+        val rayEnd = Vec3(
+            eyes.xCoord + lookVec.xCoord * range,
+            eyes.yCoord + lookVec.yCoord * range,
+            eyes.zCoord + lookVec.zCoord * range
+        )
 
-        for (entity in allEntities) {
-            // Skip invalid entities
-            if (entity !is EntityLivingBase || entity == player || !entity.isEntityAlive) continue
-            
-            // Skip non-player entities if OnlyPlayer is enabled
-            if (onlyPlayerValue && entity !is EntityPlayer) continue
-            
-            // Skip friends if RespectFriends is enabled
-            if (respectFriendsValue && entity is EntityPlayer && entity.isClientFriend()) continue
-            
-            // Calculate distance from player to entity first (for early filtering)
-            val distance = player.getDistanceToEntityBox(entity)
-            
-            // Skip entities that are too far away
-            if (distance > maxRange) continue
-            
-            // Get entity's bounding box and expand it based on multiplier
-            val originalBox = entity.entityBoundingBox
-            val boxWidth = originalBox.maxX - originalBox.minX
-            val boxHeight = originalBox.maxY - originalBox.minY
-            val boxDepth = originalBox.maxZ - originalBox.minZ
-            
-            // Calculate expansion based on multiplier (multiplier of 1.0 = no change, 2.0 = double size)
-            val widthExpansion = (boxWidth * (hitboxMultiplier - 1f)) / 2f
-            val heightExpansion = (boxHeight * (hitboxMultiplier - 1f)) / 2f
-            val depthExpansion = (boxDepth * (hitboxMultiplier - 1f)) / 2f
-            
-            val expandedBox = AxisAlignedBB.fromBounds(
-                originalBox.minX - widthExpansion,
-                originalBox.minY - heightExpansion,
-                originalBox.minZ - depthExpansion,
-                originalBox.maxX + widthExpansion,
-                originalBox.maxY + heightExpansion,
-                originalBox.maxZ + depthExpansion
-            )
-            
-            // Check if crosshair ray intersects with the expanded hitbox
-            val isLookingAtEntity = isLookingAtHitbox(playerEyes, lookVec, expandedBox, distance)
-            
-            if (!isLookingAtEntity) continue
-            
-            // Check visibility if throughWalls is disabled
-            if (!throughWalls) {
-                val entityCenter = Vec3(
-                    entity.posX,
-                    entity.posY + entity.eyeHeight / 2.0,
-                    entity.posZ
-                )
-                val raycastResult = world.rayTraceBlocks(playerEyes, entityCenter, false, true, false)
-                if (raycastResult != null && raycastResult.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK) {
-                    continue // Entity is behind a wall
+        var bestHitEntity: EntityLivingBase? = null
+        var bestHitCos = -2.0
+        var bestHitCenterDistSq = Double.MAX_VALUE
+
+        var bestFallbackEntity: EntityLivingBase? = null
+        var bestFallbackCos = -2.0
+        var bestFallbackDistSq = Double.MAX_VALUE
+
+        for (raw in world.loadedEntityList) {
+            val entity = raw as? EntityLivingBase ?: continue
+            if (!isEntityCandidate(player, entity)) continue
+
+            val expandedBox = expandHitbox(entity.hitBox)
+            val distSq = distanceSqToAabb(eyes, expandedBox)
+            if (distSq > maxRangeSq) continue
+
+            val center = entity.hitBox.center
+            val centerDirX = center.xCoord - eyes.xCoord
+            val centerDirY = center.yCoord - eyes.yCoord
+            val centerDirZ = center.zCoord - eyes.zCoord
+            val centerDistSq = centerDirX * centerDirX + centerDirY * centerDirY + centerDirZ * centerDirZ
+            val centerCos = if (centerDistSq < 1.0E-8) {
+                1.0
+            } else {
+                (lookVec.xCoord * centerDirX + lookVec.yCoord * centerDirY + lookVec.zCoord * centerDirZ) / sqrt(centerDistSq)
+            }
+
+            val hitInfo = getRayHitInfo(eyes, rayEnd, expandedBox)
+            if (hitInfo != null) {
+                if ((throughWalls || hasLineOfSight(eyes, hitInfo.hitVec)) &&
+                    isBetterHit(centerCos, centerDistSq, bestHitCos, bestHitCenterDistSq)
+                ) {
+                    bestHitEntity = entity
+                    bestHitCos = centerCos
+                    bestHitCenterDistSq = centerDistSq
+                }
+            } else {
+                val nearest = nearestPointOnAabb(eyes, expandedBox)
+                val dirX = nearest.xCoord - eyes.xCoord
+                val dirY = nearest.yCoord - eyes.yCoord
+                val dirZ = nearest.zCoord - eyes.zCoord
+                val dirLenSq = dirX * dirX + dirY * dirY + dirZ * dirZ
+
+                if (dirLenSq < 1.0E-8) {
+                    if ((throughWalls || hasLineOfSight(eyes, nearest)) &&
+                        isBetterFallback(1.0, distSq, bestFallbackCos, bestFallbackDistSq)
+                    ) {
+                        bestFallbackEntity = entity
+                        bestFallbackCos = 1.0
+                        bestFallbackDistSq = distSq
+                    }
+                } else {
+                    val dot = lookVec.xCoord * dirX + lookVec.yCoord * dirY + lookVec.zCoord * dirZ
+                    if (dot > 0.0) {
+                        val cosAngle = dot / sqrt(dirLenSq)
+                        if (cosAngle >= maxFovCos &&
+                            (throughWalls || hasLineOfSight(eyes, nearest)) &&
+                            isBetterFallback(cosAngle, distSq, bestFallbackCos, bestFallbackDistSq)
+                        ) {
+                            bestFallbackEntity = entity
+                            bestFallbackCos = cosAngle
+                            bestFallbackDistSq = distSq
+                        }
+                    }
                 }
             }
-            
-            // Select the closest entity that the crosshair is pointing at
-            if (distance < bestDistance) {
-                bestDistance = distance
-                bestTarget = entity
-            }
         }
 
-        if (bestTarget != null) {
-            _targetEntity = bestTarget
-            targetName = when (bestTarget) {
-                is EntityPlayer -> bestTarget.name
-                else -> bestTarget.javaClass.simpleName
-            }
-            isEmpty = false
+        val selectedTarget = bestHitEntity ?: bestFallbackEntity
+        if (selectedTarget != null) {
+            setTarget(selectedTarget)
         } else {
-            // Only clear target if it's not from "Once" mode (to preserve the initial target)
-            if (setTargetMode != "Once" || _targetEntity == null) {
-                _targetEntity = null
-                targetName = ""
-                isEmpty = true  // Set to empty state when no target found
-            }
+            clearTarget()
         }
     }
-    
-    /**
-     * Check if the player's crosshair (look direction) intersects with an entity's hitbox
-     * This works at any distance by projecting the look ray and checking intersection
-     */
-    private fun isLookingAtHitbox(eyePos: Vec3, lookDirection: Vec3, hitbox: AxisAlignedBB, maxDistance: Double): Boolean {
-        // Normalize the look direction
-        val normalizedLook = lookDirection.normalize()
-        
-        // Create a ray from eye position in the look direction
-        // Extend the ray to a reasonable distance (much further than maxDistance to handle long ranges)
-        val rayLength = maxOf(maxDistance * 2, 1000.0) // Ensure ray is long enough
-        val rayEnd = eyePos.addVector(
-            normalizedLook.xCoord * rayLength,
-            normalizedLook.yCoord * rayLength,
-            normalizedLook.zCoord * rayLength
+
+    private fun validateCurrentTarget() {
+        val target = targetEntity ?: return
+        val player = mc.thePlayer ?: run {
+            clearTarget()
+            return
+        }
+
+        if (!isEntityCandidate(player, target)) {
+            clearTarget()
+            return
+        }
+
+        val eyes = player.eyes
+        val lookVec = normalizedLookVector(player.rotationYaw, player.rotationPitch) ?: run {
+            clearTarget()
+            return
+        }
+
+        val range = maxRange.toDouble()
+        val maxRangeSq = range * range
+        val maxFovCos = cos(Math.toRadians(maxFOV.toDouble()))
+        val expandedBox = expandHitbox(target.hitBox)
+
+        if (distanceSqToAabb(eyes, expandedBox) > maxRangeSq) {
+            clearTarget()
+            return
+        }
+
+        val rayEnd = Vec3(
+            eyes.xCoord + lookVec.xCoord * range,
+            eyes.yCoord + lookVec.yCoord * range,
+            eyes.zCoord + lookVec.zCoord * range
         )
-        
-        // Use Minecraft's built-in ray-box intersection
-        val intersection = hitbox.calculateIntercept(eyePos, rayEnd)
-        
-        // If intersection is not null, the ray hits the hitbox
-        return intersection != null
+
+        val hitInfo = getRayHitInfo(eyes, rayEnd, expandedBox)
+        if (hitInfo != null) {
+            if (!throughWalls && !hasLineOfSight(eyes, hitInfo.hitVec)) {
+                clearTarget()
+            }
+            return
+        }
+
+        val nearest = nearestPointOnAabb(eyes, expandedBox)
+        val dirX = nearest.xCoord - eyes.xCoord
+        val dirY = nearest.yCoord - eyes.yCoord
+        val dirZ = nearest.zCoord - eyes.zCoord
+        val dirLenSq = dirX * dirX + dirY * dirY + dirZ * dirZ
+
+        if (dirLenSq < 1.0E-8) {
+            if (!throughWalls && !hasLineOfSight(eyes, nearest)) {
+                clearTarget()
+            }
+            return
+        }
+
+        val dot = lookVec.xCoord * dirX + lookVec.yCoord * dirY + lookVec.zCoord * dirZ
+        if (dot <= 0.0) {
+            clearTarget()
+            return
+        }
+
+        val cosAngle = dot / sqrt(dirLenSq)
+        if (cosAngle < maxFovCos) {
+            clearTarget()
+            return
+        }
+
+        if (!throughWalls && !hasLineOfSight(eyes, nearest)) {
+            clearTarget()
+        }
     }
-    
-    /**
-     * Get normalized look vector from yaw and pitch
-     */
-    private fun getVectorForRotation(yaw: Float, pitch: Float): Vec3 {
+
+    private fun isEntityCandidate(player: EntityPlayer, entity: EntityLivingBase): Boolean {
+        if (entity == player || !entity.isEntityAlive) return false
+        if (onlyPlayerValue && entity !is EntityPlayer) return false
+        if (respectFriendsValue && entity is EntityPlayer && entity.isClientFriend()) return false
+        return true
+    }
+
+    private fun setTarget(entity: EntityLivingBase) {
+        targetEntity = entity
+        targetName = if (entity is EntityPlayer) entity.name else entity.javaClass.simpleName
+        emptyState = false
+    }
+
+    private fun clearTarget() {
+        targetEntity = null
+        targetName = ""
+        emptyState = true
+    }
+
+    private fun resetState(clearInfo: Boolean) {
+        targetEntity = null
+        targetName = ""
+        emptyState = false
+        updateTickCounter = 0
+
+        if (clearInfo) {
+            infoTickCounter = 0
+            lastRenderInfo = Triple("None", "Unable To determine", "0")
+        }
+    }
+
+    private fun expandHitbox(box: AxisAlignedBB): AxisAlignedBB {
+        if (hitboxMultiplier <= 1.00001f) {
+            return box
+        }
+
+        val multiplierDelta = hitboxMultiplier.toDouble() - 1.0
+        val widthExpand = (box.maxX - box.minX) * multiplierDelta * 0.5
+        val heightExpand = (box.maxY - box.minY) * multiplierDelta * 0.5
+        val depthExpand = (box.maxZ - box.minZ) * multiplierDelta * 0.5
+
+        return AxisAlignedBB.fromBounds(
+            box.minX - widthExpand,
+            box.minY - heightExpand,
+            box.minZ - depthExpand,
+            box.maxX + widthExpand,
+            box.maxY + heightExpand,
+            box.maxZ + depthExpand
+        )
+    }
+
+    private fun normalizedLookVector(yaw: Float, pitch: Float): Vec3? {
         val yawRad = Math.toRadians(yaw.toDouble())
         val pitchRad = Math.toRadians(pitch.toDouble())
-        
-        val x = -sin(yawRad) * cos(pitchRad)
-        val y = -sin(pitchRad)
-        val z = cos(yawRad) * cos(pitchRad)
-        
+        val raw = Vec3(
+            -sin(yawRad) * cos(pitchRad),
+            -sin(pitchRad),
+            cos(yawRad) * cos(pitchRad)
+        )
+
+        val len = raw.lengthVector()
+        return if (len < 1.0E-8) null else Vec3(raw.xCoord / len, raw.yCoord / len, raw.zCoord / len)
+    }
+
+    private fun drawTargetTracer(entity: EntityLivingBase, partialTicks: Float) {
+        val player = mc.thePlayer ?: return
+
+        val partial = partialTicks.toDouble()
+        val interpX = entity.lastTickPosX + (entity.posX - entity.lastTickPosX) * partial
+        val interpY = entity.lastTickPosY + (entity.posY - entity.lastTickPosY) * partial
+        val interpZ = entity.lastTickPosZ + (entity.posZ - entity.lastTickPosZ) * partial
+
+        val targetX = interpX - mc.renderManager.renderPosX
+        val targetY = interpY + entity.height.toDouble() * 0.5 - mc.renderManager.renderPosY
+        val targetZ = interpZ - mc.renderManager.renderPosZ
+
+        val yaw = player.prevRotationYaw + (player.rotationYaw - player.prevRotationYaw) * partialTicks
+        val pitch = player.prevRotationPitch + (player.rotationPitch - player.prevRotationPitch) * partialTicks
+
+        val yawRad = Math.toRadians(yaw.toDouble())
+        val pitchRad = Math.toRadians(pitch.toDouble())
+
+        val eyeX = -sin(yawRad) * cos(pitchRad)
+        val eyeY = -sin(pitchRad) + player.eyeHeight.toDouble()
+        val eyeZ = cos(yawRad) * cos(pitchRad)
+
+        glColor4f(1f, 0f, 0f, 0.95f)
+        glLineWidth(2.2f)
+        glBegin(GL_LINES)
+        glVertex3d(eyeX, eyeY, eyeZ)
+        glVertex3d(targetX, targetY, targetZ)
+        glEnd()
+    }
+
+    private fun getRayHitInfo(eyes: Vec3, rayEnd: Vec3, box: AxisAlignedBB): RayHitInfo? {
+        if (box.isVecInside(eyes)) {
+            return RayHitInfo(0.0, eyes)
+        }
+
+        val intercept = box.calculateIntercept(eyes, rayEnd) ?: return null
+        return RayHitInfo(eyes.squareDistanceTo(intercept.hitVec), intercept.hitVec)
+    }
+
+    private fun hasLineOfSight(eyes: Vec3, point: Vec3): Boolean {
+        val world = mc.theWorld ?: return false
+        val trace = world.rayTraceBlocks(eyes, point, false, true, false)
+        return trace == null || trace.typeOfHit != MovingObjectPosition.MovingObjectType.BLOCK
+    }
+
+    private fun nearestPointOnAabb(point: Vec3, box: AxisAlignedBB): Vec3 {
+        val x = clamp(point.xCoord, box.minX, box.maxX)
+        val y = clamp(point.yCoord, box.minY, box.maxY)
+        val z = clamp(point.zCoord, box.minZ, box.maxZ)
         return Vec3(x, y, z)
     }
 
-    fun isTargetSelected(): Boolean {
-        return _targetEntity != null && targetName.isNotEmpty()
+    private fun clamp(value: Double, min: Double, max: Double): Double {
+        return when {
+            value < min -> min
+            value > max -> max
+            else -> value
+        }
     }
 
-    fun isEmpty(): Boolean {
-        return isEmpty
+    private fun distanceSqToAabb(point: Vec3, box: AxisAlignedBB): Double {
+        val dx = when {
+            point.xCoord < box.minX -> box.minX - point.xCoord
+            point.xCoord > box.maxX -> point.xCoord - box.maxX
+            else -> 0.0
+        }
+        val dy = when {
+            point.yCoord < box.minY -> box.minY - point.yCoord
+            point.yCoord > box.maxY -> point.yCoord - box.maxY
+            else -> 0.0
+        }
+        val dz = when {
+            point.zCoord < box.minZ -> box.minZ - point.zCoord
+            point.zCoord > box.maxZ -> point.zCoord - box.maxZ
+            else -> 0.0
+        }
+        return dx * dx + dy * dy + dz * dz
     }
+
+    private fun isBetterFallback(cosAngle: Double, distSq: Double, bestCos: Double, bestDistSq: Double): Boolean {
+        return cosAngle > bestCos + 1.0E-9 || (abs(cosAngle - bestCos) <= 1.0E-9 && distSq < bestDistSq)
+    }
+
+    private fun isBetterHit(cosAngle: Double, centerDistSq: Double, bestCos: Double, bestCenterDistSq: Double): Boolean {
+        return cosAngle > bestCos + 1.0E-9 || (abs(cosAngle - bestCos) <= 1.0E-9 && centerDistSq < bestCenterDistSq)
+    }
+
+    fun isTargetSelected(): Boolean {
+        val target = targetEntity ?: return false
+        if (!target.isEntityAlive) {
+            clearTarget()
+            return false
+        }
+        return targetName.isNotEmpty()
+    }
+
+    fun isEmpty(): Boolean = emptyState
 
     fun getTargetEntity(): EntityLivingBase? {
-        return _targetEntity
+        val target = targetEntity ?: return null
+        if (!target.isEntityAlive) {
+            clearTarget()
+            return null
+        }
+        return target
     }
 
-    fun getTargetPlayer(): EntityPlayer? {
-        return _targetEntity as? EntityPlayer
-    }
+    fun getTargetPlayer(): EntityPlayer? = getTargetEntity() as? EntityPlayer
 
-    fun getTargetName(): String {
-        return targetName
-    }
+    fun getTargetName(): String = targetName
 
-    fun shouldBlockOtherTargets(): Boolean {
-        return state && isTargetSelected()
-    }
+    fun shouldBlockOtherTargets(): Boolean = state && isTargetSelected()
 
     fun shouldAllowThroughEntities(entity: Entity?): Boolean {
-        return state && hitThroughEntitiesValue && entity == _targetEntity
+        return state && hitThroughEntitiesValue && entity != null && entity == targetEntity
     }
+
+    private data class RayHitInfo(val distanceSq: Double, val hitVec: Vec3)
 }
