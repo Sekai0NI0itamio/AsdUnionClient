@@ -772,7 +772,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
         val killAuraTargeter = net.asd.union.features.module.modules.combat.KillAuraTargeter
         if (killAuraTargeter.state) {
             val targeterTarget = killAuraTargeter.getTargetEntity()
-            if (targeterTarget != null && targeterTarget.isEntityAlive) {
+            if (targeterTarget != null && targeterTarget.isEntityAlive && isEnemy(targeterTarget)) {
                 if (updateRotations(targeterTarget)) {
                     target = targeterTarget
                 }

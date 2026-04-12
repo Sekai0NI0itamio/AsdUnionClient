@@ -17,11 +17,16 @@ import net.asd.union.event.WorldEvent
 import net.asd.union.event.handler
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
+import net.asd.union.features.module.modules.client.TargetModule
+import net.asd.union.features.module.modules.client.Teams
+import net.asd.union.handler.combat.CombatManager.isFocusEntity
 import net.asd.union.ui.font.Fonts
 import net.asd.union.utils.extensions.center
 import net.asd.union.utils.extensions.eyes
 import net.asd.union.utils.extensions.hitBox
+import net.asd.union.utils.extensions.isAnimal
 import net.asd.union.utils.extensions.isClientFriend
+import net.asd.union.utils.extensions.isMob
 import net.asd.union.utils.render.RenderUtils
 import net.minecraft.entity.Entity
 import net.minecraft.entity.EntityLivingBase
@@ -43,7 +48,6 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
     private val renderEspValue by boolean("RenderESP", true)
     private val renderStyleValue by choices("RenderStyle", arrayOf("Outline", "TracerBox"), "TracerBox") { renderEspValue }
     private val hitThroughEntitiesValue by boolean("HitThroughEntities", true)
-    private val onlyPlayerValue by boolean("OnlyPlayer", true)
     private val respectFriendsValue by boolean("RespectFriends", true)
     private val setTargetMode by choices("SetTargetToView", arrayOf("Once", "Always"), "Once")
     private val updateIntervalTicks by int("UpdateIntervalTicks", 2, 1..20) { setTargetMode == "Always" }
@@ -114,11 +118,11 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
         var posY = 5f
         val lineHeight = font.FONT_HEIGHT + 2
 
-        font.drawStringWithShadow("Attacking Player: §6${lastRenderInfo.first}", posX, posY, Color.WHITE.rgb)
+        font.drawStringWithShadow("Attacking Entity: §6${lastRenderInfo.first}", posX, posY, Color.WHITE.rgb)
         posY += lineHeight.toFloat()
-        font.drawStringWithShadow("Approximated Health of Player: §6${lastRenderInfo.second}", posX, posY, Color.WHITE.rgb)
+        font.drawStringWithShadow("Approximated Health of Entity: §6${lastRenderInfo.second}", posX, posY, Color.WHITE.rgb)
         posY += lineHeight.toFloat()
-        font.drawStringWithShadow("Distance of Player to Self: §6${lastRenderInfo.third}", posX, posY, Color.WHITE.rgb)
+        font.drawStringWithShadow("Distance of Entity to Self: §6${lastRenderInfo.third}", posX, posY, Color.WHITE.rgb)
     }
 
     val onRender3D = handler<Render3DEvent>(priority = -10) { event ->
@@ -344,8 +348,22 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
 
     private fun isEntityCandidate(player: EntityPlayer, entity: EntityLivingBase): Boolean {
         if (entity == player || !entity.isEntityAlive) return false
-        if (onlyPlayerValue && entity !is EntityPlayer) return false
-        if (respectFriendsValue && entity is EntityPlayer && entity.isClientFriend()) return false
+
+        if (!TargetModule.invisibleValue && entity.isInvisible) return false
+
+        val typeAllowed = when (entity) {
+            is EntityPlayer -> TargetModule.playerValue
+            else -> (TargetModule.mobValue && entity.isMob()) || (TargetModule.animalValue && entity.isAnimal())
+        }
+        if (!typeAllowed) return false
+
+        if (entity is EntityPlayer) {
+            if (entity.isSpectator) return false
+            if (respectFriendsValue && entity.isClientFriend()) return false
+            if (!isFocusEntity(entity)) return false
+            if (Teams.handleEvents() && Teams.isInYourTeam(entity)) return false
+        }
+
         return true
     }
 
