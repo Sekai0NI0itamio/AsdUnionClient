@@ -1,5 +1,6 @@
 package net.asd.union.handler.network
 
+import com.google.gson.JsonParser
 import net.asd.union.event.Listenable
 import net.asd.union.event.UpdateEvent
 import net.asd.union.event.handler
@@ -20,6 +21,7 @@ import java.util.Locale
 object ConnectToRouter : MinecraftInstance, Listenable {
     const val TUNNEL_PORT = 25560
     private const val CMD_WIFI_CONNECT = 2
+    private const val CMD_WIFI_LIST = 3
 
     private const val AUTO_DISABLE_THRESHOLD = 3
     private const val ULTRA_REFRESH_DEBOUNCE_MS = 150L
@@ -84,6 +86,26 @@ object ConnectToRouter : MinecraftInstance, Listenable {
 
     @Volatile
     var lastRequestedWifiSsid = ""
+        private set
+
+    @Volatile
+    var wifiListInProgress = false
+        private set
+
+    @Volatile
+    var wifiListStatusLine = ""
+        private set
+
+    @Volatile
+    var wifiListStatusColor = 0xAAAAAA
+        private set
+
+    @Volatile
+    var wifiNetworks: List<String> = emptyList()
+        private set
+
+    @Volatile
+    var wifiNetworksUpdatedAtMs = 0L
         private set
 
     var wasAutoDisabled = false
@@ -265,9 +287,8 @@ object ConnectToRouter : MinecraftInstance, Listenable {
                 socket.getOutputStream().flush()
 
                 val input = socket.getInputStream()
-                val length = input.read()
-                if (length > 0) {
-                    val json = readSizedPayload(input, length)
+                val json = readFramedPayload(input)
+                if (json.isNotBlank()) {
                     logDebug("Tunnel refresh response: $json")
                 }
             }
@@ -281,6 +302,17 @@ object ConnectToRouter : MinecraftInstance, Listenable {
         val message: String,
         val rawJson: String,
     )
+
+    data class WifiListResult(
+        val ok: Boolean,
+        val networks: List<String>,
+        val message: String,
+        val rawJson: String,
+    )
+
+    fun setRequestedWifiSsid(ssid: String) {
+        lastRequestedWifiSsid = ssid.trim()
+    }
 
     fun connectWifiThroughTunnel(ssid: String) {
         val trimmed = ssid.trim()
@@ -333,6 +365,47 @@ object ConnectToRouter : MinecraftInstance, Listenable {
         }.apply { isDaemon = true }.start()
     }
 
+    fun refreshWifiNetworksThroughTunnel() {
+        if (!isMacOs()) {
+            wifiListStatusLine = "Wi-Fi list: only supported on macOS"
+            wifiListStatusColor = 0xFF5555
+            return
+        }
+
+        if (wifiListInProgress) {
+            wifiListStatusLine = "Wi-Fi list: already loading…"
+            wifiListStatusColor = 0xFFFF55
+            return
+        }
+
+        wifiListInProgress = true
+        wifiListStatusLine = "Wi-Fi list: loading…"
+        wifiListStatusColor = 0xFFFF55
+
+        Thread {
+            try {
+                val result = requestWifiList()
+                wifiNetworks = result.networks
+                wifiNetworksUpdatedAtMs = System.currentTimeMillis()
+                wifiListStatusLine = if (result.ok) {
+                    if (result.message.isNotBlank()) {
+                        "Wi-Fi list: ${result.message}"
+                    } else {
+                        "Wi-Fi list: ${result.networks.size} networks"
+                    }
+                } else {
+                    "Wi-Fi list: ${result.message.ifBlank { "Failed" }}"
+                }
+                wifiListStatusColor = if (result.ok) 0x55FF55 else 0xFF5555
+            } catch (throwable: Throwable) {
+                wifiListStatusLine = "Wi-Fi list: ${throwable.message ?: throwable::class.java.simpleName}"
+                wifiListStatusColor = 0xFF5555
+            } finally {
+                wifiListInProgress = false
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
     fun requestWifiConnect(ssid: String): WifiConnectResult {
         val trimmed = ssid.trim()
         if (trimmed.isEmpty()) {
@@ -356,11 +429,10 @@ object ConnectToRouter : MinecraftInstance, Listenable {
                 output.flush()
 
                 val input = socket.getInputStream()
-                val length = input.read()
-                if (length <= 0) {
+                val json = readFramedPayload(input)
+                if (json.isBlank()) {
                     WifiConnectResult(ok = false, message = "No response from tunnel", rawJson = "")
                 } else {
-                    val json = readSizedPayload(input, length)
                     logDebug("Tunnel Wi-Fi response: $json")
 
                     val ok = wifiOkRegex.find(json)?.groupValues?.getOrNull(1)?.equals("true", ignoreCase = true) == true
@@ -373,6 +445,48 @@ object ConnectToRouter : MinecraftInstance, Listenable {
         }
     }
 
+    fun requestWifiList(): WifiListResult {
+        return runCatching {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", TUNNEL_PORT), 1000)
+                socket.soTimeout = 30_000
+
+                val output = socket.getOutputStream()
+                output.write(CMD_WIFI_LIST)
+                output.flush()
+
+                val input = socket.getInputStream()
+                val json = readFramedPayload(input)
+                if (json.isBlank()) {
+                    WifiListResult(ok = false, networks = emptyList(), message = "No response from tunnel", rawJson = "")
+                } else {
+                    logDebug("Tunnel Wi-Fi list response: $json")
+                    parseWifiListJson(json)
+                }
+            }
+        }.getOrElse {
+            WifiListResult(ok = false, networks = emptyList(), message = it.message ?: it::class.java.simpleName, rawJson = "")
+        }
+    }
+
+    private fun parseWifiListJson(json: String): WifiListResult {
+        return runCatching {
+            val obj = JsonParser().parse(json).asJsonObject
+            val ok = obj.get("ok")?.asBoolean ?: false
+            val message = obj.get("message")?.asString.orEmpty()
+            val networks = obj.getAsJsonArray("networks")
+                ?.mapNotNull { runCatching { it.asString }.getOrNull() }
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.distinct()
+                .orEmpty()
+
+            WifiListResult(ok = ok, networks = networks, message = message, rawJson = json)
+        }.getOrElse {
+            WifiListResult(ok = false, networks = emptyList(), message = it.message ?: "Bad JSON", rawJson = json)
+        }
+    }
+
     private fun checkTunnel(): TunnelCheckResult {
         return runCatching {
             Socket().use { socket ->
@@ -382,11 +496,10 @@ object ConnectToRouter : MinecraftInstance, Listenable {
                 socket.getOutputStream().flush()
 
                 val input = socket.getInputStream()
-                val length = input.read()
-                if (length <= 0) {
+                val json = readFramedPayload(input)
+                if (json.isBlank()) {
                     TunnelCheckResult(false, "", "")
                 } else {
-                    val json = readSizedPayload(input, length)
                     logDebug("Tunnel health response: $json")
                     val iface = interfaceRegex.find(json)?.groupValues?.getOrNull(1).orEmpty()
                     val ip = ipRegex.find(json)?.groupValues?.getOrNull(1).orEmpty()
@@ -638,6 +751,26 @@ object ConnectToRouter : MinecraftInstance, Listenable {
     private fun logDebug(message: String) {
         if (debugEnabled) {
             ClientUtils.LOGGER.info("[ConnectToRouter] $message")
+        }
+    }
+
+    private fun readFramedPayload(input: InputStream): String {
+        val first = input.read()
+        if (first <= 0) {
+            return ""
+        }
+
+        return if (first == 0xFF) {
+            val hi = input.read()
+            val lo = input.read()
+            if (hi < 0 || lo < 0) {
+                ""
+            } else {
+                val length = (hi shl 8) or lo
+                if (length <= 0) "" else readSizedPayload(input, length)
+            }
+        } else {
+            readSizedPayload(input, first)
         }
     }
 

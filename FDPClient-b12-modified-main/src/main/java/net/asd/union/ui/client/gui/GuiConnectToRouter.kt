@@ -15,6 +15,7 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
     private lateinit var toggleButton: GuiButton
     private lateinit var refreshButton: GuiButton
     private lateinit var wifiConnectButton: GuiButton
+    private lateinit var wifiNetworksButton: GuiButton
     private lateinit var wifiSsidField: GuiTextField
     private var statusTopY = 0f
 
@@ -37,9 +38,10 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
         }
 
         wifiConnectButton = +GuiButton(4, centerX, startY + buttonSpacing * 3, "Connect Wi-Fi")
-        +GuiButton(0, centerX, startY + buttonSpacing * 4, "Back")
+        wifiNetworksButton = +GuiButton(5, centerX, startY + buttonSpacing * 4, "Wi-Fi Networks")
+        +GuiButton(0, centerX, startY + buttonSpacing * 5, "Back")
 
-        statusTopY = startY + buttonSpacing * 5f + 10f
+        statusTopY = startY + buttonSpacing * 6f + 10f
     }
 
     override fun actionPerformed(button: GuiButton) {
@@ -57,6 +59,9 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
             4 -> {
                 ConnectToRouter.connectWifiThroughTunnel(wifiSsidField.text)
             }
+            5 -> {
+                mc.displayGuiScreen(GuiRouterWifiNetworks(this))
+            }
         }
     }
 
@@ -71,6 +76,7 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
         Fonts.fontBold180.drawCenteredString("Connect to Router", width / 2f, height / 8f + 5f, 4673984, true)
 
         wifiConnectButton.enabled = ConnectToRouter.tunnelAvailable && !ConnectToRouter.wifiCommandInProgress
+        wifiNetworksButton.enabled = !ConnectToRouter.wifiListInProgress
 
         wifiSsidField.drawTextBox()
         if (wifiSsidField.text.isEmpty() && !wifiSsidField.isFocused) {
