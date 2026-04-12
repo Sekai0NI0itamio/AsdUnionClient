@@ -10,6 +10,7 @@ import net.asd.union.FDPClient.clientVersionText
 import net.asd.union.event.EventManager
 import net.asd.union.event.SessionUpdateEvent
 import net.asd.union.features.module.modules.client.HUDModule.guiColor
+import net.asd.union.handler.other.SessionStorage
 import net.asd.union.ui.client.altmanager.GuiAltManager
 import net.asd.union.ui.client.clickgui.ClickGui
 import net.asd.union.ui.client.gui.button.ImageButton
@@ -53,6 +54,7 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
 
     override fun initGui() {
         logo = ResourceLocation("${CLIENT_NAME.lowercase()}/mainmenu/logo.png")
+        SessionStorage.applySavedUsername()
         val centerY = height / 2 - 80
         val buttonWidth = 133
         val buttonHeight = 20

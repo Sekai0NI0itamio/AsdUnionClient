@@ -11,6 +11,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import net.asd.union.utils.client.ClientUtils
 import java.util.*
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -85,7 +86,7 @@ internal object LoopManager : Listenable, CoroutineScope by CoroutineScope(Super
  */
 object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
     private val registry = ALL_EVENT_CLASSES.associateWithTo(IdentityHashMap(ALL_EVENT_CLASSES.size)) {
-        ArrayList<EventHook<in Event>>()
+        CopyOnWriteArrayList<EventHook<in Event>>()
     }
 
     init {
@@ -117,7 +118,7 @@ object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
     }
 
     fun unregisterListener(listener: Listenable) {
-        registry.values.forEach { it.removeIf { hook -> hook.owner == listener } }
+        registry.values.forEach { it.removeIf { hook -> hook.owner === listener } }
     }
 
     private fun <T : Event> EventHook<T>.processEvent(event: T) {
@@ -148,14 +149,7 @@ object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
     fun <T : Event> call(event: T): T {
         val hooks = registry[event.javaClass] ?: return event
 
-        // Create a defensive copy to avoid ConcurrentModificationException during iteration
-        val hooksCopy = hooks.toList()
-
-        hooksCopy.forEach { hook ->
-            if (hook == null) {
-                ClientUtils.LOGGER.warn("Null EventHook found in registry for event ${event.javaClass.simpleName}")
-                return@forEach
-            }
+        hooks.forEach { hook ->
             hook.processEvent(event)
         }
 
@@ -165,15 +159,8 @@ object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
     fun <T : Event> call(event: T, listener: Listenable): T {
         val hooks = registry[event.javaClass] ?: return event
 
-        // Create a defensive copy to avoid ConcurrentModificationException during iteration
-        val hooksCopy = hooks.toList()
-
-        hooksCopy.forEach { hook ->
-            if (hook == null) {
-                ClientUtils.LOGGER.warn("Null EventHook found in registry for event ${event.javaClass.simpleName}")
-                return@forEach
-            }
-            if (hook.owner == listener) {
+        hooks.forEach { hook ->
+            if (hook.owner === listener) {
                 hook.processEvent(event)
             }
         }

@@ -17,11 +17,6 @@ object SessionStorage : Listenable, MinecraftInstance {
             return
         }
 
-        val currentUsername = mc.session?.username?.trim().orEmpty()
-        if (currentUsername == username) {
-            return
-        }
-
         val uuid = UUID.nameUUIDFromBytes("OfflinePlayer:$username".toByteArray(Charsets.UTF_8))
         mc.session = Session(username, uuid.toString(), "-", "legacy")
     }
@@ -43,6 +38,6 @@ object SessionStorage : Listenable, MinecraftInstance {
         }
 
         lastUsername = username
-        FileManager.saveConfig(FileManager.valuesConfig)
+        FileManager.saveConfig(FileManager.valuesConfig, false)
     }
 }

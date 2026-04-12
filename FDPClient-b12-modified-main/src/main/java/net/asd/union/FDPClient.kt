@@ -27,6 +27,7 @@ import net.asd.union.handler.lang.LanguageManager.loadLanguages
 import net.asd.union.handler.macro.MacroManager
 import net.asd.union.handler.network.ConnectToRouter
 import net.asd.union.handler.other.SessionStorage
+import net.asd.union.handler.other.ConfigSync
 import net.asd.union.handler.payload.ClientFixes
 import net.asd.union.handler.render.AntiSpawnLag
 import net.asd.union.handler.tabs.BlocksTab
@@ -151,6 +152,7 @@ object FDPClient {
             CombatManager
             MacroManager
             SessionStorage
+            ConfigSync
             EntityCache
             ItemCache
             InventoryUtils
@@ -189,6 +191,7 @@ object FDPClient {
 
             // Load configs
             loadAllConfigs()
+            SessionStorage.applySavedUsername()
 
             // Update client window
             updateClientWindow()

@@ -335,6 +335,7 @@ object ClickGui : GuiScreen() {
     }
 
     override fun onGuiClosed() {
+        saveConfig(valuesConfig)
         saveConfig(clickGuiConfig)
         for (panel in panels) panel.fade = 0
     }

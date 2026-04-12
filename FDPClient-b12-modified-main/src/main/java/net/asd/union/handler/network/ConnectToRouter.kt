@@ -97,7 +97,7 @@ object ConnectToRouter : MinecraftInstance, Listenable {
     fun isTunnelMode(): Boolean = enabled && status == Status.TUNNEL
 
     fun loadEnabledState(value: Boolean) {
-        applyEnabledState(value, persist = false, rememberPreference = true)
+        applyEnabledState(value, persist = false, rememberPreference = true, allowAutoDisable = false)
     }
 
     @Synchronized
@@ -188,7 +188,7 @@ object ConnectToRouter : MinecraftInstance, Listenable {
             else -> 0xFFFF55
         }
 
-    fun refreshStatus() {
+    fun refreshStatus(allowAutoDisable: Boolean = true) {
         logDebug("refresh start")
         status = Status.DETECTING
         refreshTimer.reset()
@@ -214,7 +214,7 @@ object ConnectToRouter : MinecraftInstance, Listenable {
         val addressResult = findPreferredAddress()
         val addressError = addressResult.error
         if (addressError != null) {
-            onDetectionFailed(addressError)
+            onDetectionFailed(addressError, allowAutoDisable)
             return
         }
 
@@ -234,7 +234,7 @@ object ConnectToRouter : MinecraftInstance, Listenable {
             return
         }
 
-        onDetectionFailed("No route via $selectedInterface")
+        onDetectionFailed("No route via $selectedInterface", allowAutoDisable)
     }
 
     fun sendRefreshPacket() {
@@ -283,9 +283,15 @@ object ConnectToRouter : MinecraftInstance, Listenable {
         }
     }
 
-    private fun onDetectionFailed(reason: String) {
+    private fun onDetectionFailed(reason: String, allowAutoDisable: Boolean = true) {
         status = Status.FAILED
         lastError = reason
+        if (!allowAutoDisable) {
+            consecutiveFailures = 0
+            logDebug("Detection failed (startup load): $reason")
+            return
+        }
+
         consecutiveFailures += 1
         logDebug("Detection failed ($consecutiveFailures/$AUTO_DISABLE_THRESHOLD): $reason")
 
@@ -293,11 +299,16 @@ object ConnectToRouter : MinecraftInstance, Listenable {
             logDebug("Auto-disabling after $consecutiveFailures consecutive failures")
             wasAutoDisabled = true
             autoDisableReason = reason
-            applyEnabledState(false, persist = false, rememberPreference = false)
+            applyEnabledState(false, persist = false, rememberPreference = false, allowAutoDisable = true)
         }
     }
 
-    private fun applyEnabledState(value: Boolean, persist: Boolean, rememberPreference: Boolean) {
+    private fun applyEnabledState(
+        value: Boolean,
+        persist: Boolean,
+        rememberPreference: Boolean,
+        allowAutoDisable: Boolean = true,
+    ) {
         val stateChanged = enabledState != value
 
         if (rememberPreference) {
@@ -318,7 +329,7 @@ object ConnectToRouter : MinecraftInstance, Listenable {
             wasAutoDisabled = false
             autoDisableReason = ""
             sendRefreshPacket()
-            refreshStatus()
+            refreshStatus(allowAutoDisable)
         } else {
             status = Status.OFF
             lastError = ""
@@ -329,6 +340,7 @@ object ConnectToRouter : MinecraftInstance, Listenable {
             tunnelAvailable = false
             tunnelInterface = ""
             tunnelIp = ""
+            consecutiveFailures = 0
             refreshTimer.zero()
         }
 
