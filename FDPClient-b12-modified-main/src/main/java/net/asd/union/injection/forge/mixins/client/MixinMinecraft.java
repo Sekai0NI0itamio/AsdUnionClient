@@ -24,6 +24,9 @@ import net.asd.union.utils.performance.StartupProgressRenderer;
 import net.asd.union.utils.render.IconUtils;
 import net.asd.union.utils.render.MiniMapRegister;
 import net.asd.union.utils.render.RenderUtils;
+import net.asd.union.file.FileManager;
+import net.asd.union.handler.other.SessionStorage;
+import net.asd.union.handler.network.ConnectToRouter;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
@@ -50,6 +53,8 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.*;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.util.Queue;
@@ -61,6 +66,8 @@ import static net.asd.union.utils.client.MinecraftInstance.mc;
 @Mixin(Minecraft.class)
 @SideOnly(Side.CLIENT)
 public abstract class MixinMinecraft {
+
+    private static final Logger LOGGER = LogManager.getLogger("EarlyConfig");
 
     @Shadow
     public GuiScreen currentScreen;
@@ -129,21 +136,21 @@ public abstract class MixinMinecraft {
         // Load configs as early as possible to prevent default values from overwriting saved settings
         // This ensures saved account and router settings are applied BEFORE Minecraft sets defaults
         try {
-            net.asd.union.utils.client.ClientUtils.LOGGER.info("[EarlyConfig] Loading configs before Minecraft initialization...");
+            LOGGER.info("[EarlyConfig] Loading configs before Minecraft initialization...");
             
             // Load all configuration files first - this includes accounts.json, values.json, etc.
             // ValuesConfig.loadConfig() will automatically call ConnectToRouter.loadEnabledState(savedValue)
-            net.asd.union.file.FileManager.loadAllConfigs();
+            FileManager.loadAllConfigs();
             
             // Apply saved username BEFORE Minecraft can set default "itamio"
-            net.asd.union.handler.other.SessionStorage.applySavedUsername();
+            SessionStorage.applySavedUsername();
             
             // Refresh router status with the loaded settings (ConnectToRouter.enabled should already be set)
-            net.asd.union.handler.network.ConnectToRouter.refreshStatus(false);
+            ConnectToRouter.refreshStatus(false);
             
-            net.asd.union.utils.client.ClientUtils.LOGGER.info("[EarlyConfig] Successfully loaded configs before Minecraft initialization");
+            LOGGER.info("[EarlyConfig] Successfully loaded configs before Minecraft initialization");
         } catch (Exception e) {
-            net.asd.union.utils.client.ClientUtils.LOGGER.error("[EarlyConfig] Failed to load configs early", e);
+            LOGGER.error("[EarlyConfig] Failed to load configs early", e);
         }
     }
 
