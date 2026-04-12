@@ -54,12 +54,13 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
     val onUpdate = handler<UpdateEvent> {
         val player = mc.thePlayer ?: return@handler
 
-        if (mc.theWorld == null || player.isDead || mc.currentScreen != null) {
+        if (mc.theWorld == null || player.isDead) {
             resetInputs()
             return@handler
         }
 
         val now = System.currentTimeMillis()
+        val screenOpen = mc.currentScreen != null
         updateSchedules(now)
 
         if (isPaused) {
@@ -77,12 +78,14 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
             return@handler
         }
 
-        if (switchItems && nextSwitchAt > 0L && now >= nextSwitchAt) {
+        // Keep movement active even when a GUI is open, but don't run item/click
+        // automation from inside menus.
+        if (!screenOpen && switchItems && nextSwitchAt > 0L && now >= nextSwitchAt) {
             switchHotbarSlot()
             nextSwitchAt = now + randomDelay(switchDelay)
         }
 
-        if (pendingClicks > 0 && now >= nextClickAt) {
+        if (!screenOpen && pendingClicks > 0 && now >= nextClickAt) {
             performClick()
             pendingClicks--
             nextClickAt = if (pendingClicks > 0) now + randomDelay(clickDelay) else 0L
@@ -94,7 +97,7 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
     val onMovementInput = handler<MovementInputEvent> { event ->
         val player = mc.thePlayer ?: return@handler
 
-        if (mc.theWorld == null || player.isDead || mc.currentScreen != null) {
+        if (mc.theWorld == null || player.isDead) {
             return@handler
         }
 
