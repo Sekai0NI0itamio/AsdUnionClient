@@ -189,10 +189,6 @@ object FDPClient {
                 LOGGER.error("Failed to load scripts.", it)
             }
 
-            // Load configs
-            loadAllConfigs()
-            SessionStorage.applySavedUsername()
-
             // Update client window
             updateClientWindow()
 
@@ -212,6 +208,16 @@ object FDPClient {
 
             // Load background
             FileManager.loadBackground()
+
+            // Load configs AFTER all initialization is complete
+            // This ensures settings are loaded after everything is ready
+            loadAllConfigs()
+            SessionStorage.applySavedUsername()
+            
+            // Force refresh ConnectToRouter status after loading settings
+            ConnectToRouter.refreshStatus(false)
+            
+            LOGGER.info("Configuration loaded successfully")
         } catch (e: Exception) {
             LOGGER.error("Failed to start client: ${e.message}")
         } finally {
