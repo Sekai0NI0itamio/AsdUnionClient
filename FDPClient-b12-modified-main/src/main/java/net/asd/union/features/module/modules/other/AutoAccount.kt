@@ -16,7 +16,6 @@ import net.asd.union.config.boolean
 import net.asd.union.config.int
 import net.asd.union.event.*
 import net.asd.union.event.EventManager.call
-import net.asd.union.event.ChatEvent
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
 import net.asd.union.file.FileManager
@@ -29,6 +28,7 @@ import net.asd.union.utils.client.chat
 import net.asd.union.utils.kotlin.RandomUtils.randomAccount
 import net.asd.union.utils.kotlin.SharedScopes
 import net.minecraft.network.play.server.S02PacketChat
+import net.minecraft.network.play.client.C01PacketChatMessage
 import net.minecraft.network.play.server.S40PacketDisconnect
 import net.minecraft.network.play.server.S45PacketTitle
 import net.minecraft.util.ChatComponentText
@@ -238,6 +238,27 @@ object AutoAccount :
 
     val onPacket = handler<PacketEvent> { event ->
         when (val packet = event.packet) {
+            is C01PacketChatMessage -> {
+                if (!recordPasswords || event.eventType != EventState.SEND) return@handler
+
+                val message = packet.message
+                val parts = message.trim().split(" ")
+
+                when {
+                    message.startsWith("/register ", ignoreCase = true) || message.startsWith("/reg ", ignoreCase = true) -> {
+                        val passwordUsed = parts.getOrNull(1) ?: return@handler
+                        storePassword(mc.currentServerData?.serverIP, mc.session.username, passwordUsed)
+                        addNotification(Notification("Password recorded for ${mc.session.username}", "Password Saved", Type.SUCCESS))
+                    }
+
+                    message.startsWith("/login ", ignoreCase = true) || message.startsWith("/log ", ignoreCase = true) || message.startsWith("/l ", ignoreCase = true) -> {
+                        val passwordUsed = parts.getOrNull(1) ?: return@handler
+                        storePassword(mc.currentServerData?.serverIP, mc.session.username, passwordUsed)
+                        addNotification(Notification("Password recorded for ${mc.session.username}", "Password Saved", Type.SUCCESS))
+                    }
+                }
+            }
+
             is S02PacketChat, is S45PacketTitle -> {
                 // Don't respond to register / login prompts when failed once
                 if (!passwordValue.isSupported() || status == Status.STOPPED) return@handler
@@ -284,25 +305,6 @@ object AutoAccount :
             }
         }
 
-    }
-
-    val onChatMessage = handler<ChatEvent> { event ->
-        if (!recordPasswords || !isEnabled) return@handler
-        
-        val message = event.message
-        if (message.startsWith("/register ")) {
-            // Extract password from /register command
-            val parts = message.split(" ")
-            if (parts.size >= 3) {
-                val passwordUsed = parts[2] // Second parameter is the password confirmation
-                val serverIP = mc.currentServerData?.serverIP
-                val accountName = mc.session.username
-                
-                // Store the password for future use
-                storePassword(serverIP, accountName, passwordUsed)
-                addNotification(Notification("Password recorded for $accountName", "Password Saved", Type.SUCCESS))
-            }
-        }
     }
 
     val onWorld = handler<WorldEvent> { event ->
