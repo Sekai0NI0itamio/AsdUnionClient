@@ -7,24 +7,39 @@ import net.asd.union.ui.font.Fonts
 import net.asd.union.utils.ui.AbstractScreen
 import net.minecraft.client.gui.GuiButton
 import net.minecraft.client.gui.GuiScreen
+import net.minecraft.client.gui.GuiTextField
 import org.lwjgl.input.Keyboard
 import java.awt.Color
 
 class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
     private lateinit var toggleButton: GuiButton
     private lateinit var refreshButton: GuiButton
+    private lateinit var wifiConnectButton: GuiButton
+    private lateinit var wifiSsidField: GuiTextField
+    private var statusTopY = 0f
 
     override fun initGui() {
         val buttonSpacing = 30
+        val startY = height / 4 + 35
+        val centerX = width / 2 - 100
 
         toggleButton = +GuiButton(
             1,
-            width / 2 - 100,
-            height / 4 + 35,
+            centerX,
+            startY,
             "ConnectToRouter (${if (ConnectToRouter.enabled) "On" else "Off"})",
         )
-        refreshButton = +GuiButton(2, width / 2 - 100, height / 4 + 35 + buttonSpacing, "Refresh Status")
-        +GuiButton(0, width / 2 - 100, height / 4 + 35 + buttonSpacing * 3, "Back")
+        refreshButton = +GuiButton(2, centerX, startY + buttonSpacing, "Refresh Status")
+
+        wifiSsidField = GuiTextField(3, Fonts.font35, centerX, startY + buttonSpacing * 2, 200, 20).apply {
+            maxStringLength = 32
+            text = ConnectToRouter.lastRequestedWifiSsid
+        }
+
+        wifiConnectButton = +GuiButton(4, centerX, startY + buttonSpacing * 3, "Connect Wi-Fi")
+        +GuiButton(0, centerX, startY + buttonSpacing * 4, "Back")
+
+        statusTopY = startY + buttonSpacing * 5f + 10f
     }
 
     override fun actionPerformed(button: GuiButton) {
@@ -39,7 +54,15 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
                 ConnectToRouter.sendRefreshPacket()
                 ConnectToRouter.refreshStatus()
             }
+            4 -> {
+                ConnectToRouter.connectWifiThroughTunnel(wifiSsidField.text)
+            }
         }
+    }
+
+    override fun updateScreen() {
+        wifiSsidField.updateCursorCounter()
+        super.updateScreen()
     }
 
     override fun drawScreen(mouseX: Int, mouseY: Int, partialTicks: Float) {
@@ -47,9 +70,21 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
 
         Fonts.fontBold180.drawCenteredString("Connect to Router", width / 2f, height / 8f + 5f, 4673984, true)
 
+        wifiConnectButton.enabled = ConnectToRouter.tunnelAvailable && !ConnectToRouter.wifiCommandInProgress
+
+        wifiSsidField.drawTextBox()
+        if (wifiSsidField.text.isEmpty() && !wifiSsidField.isFocused) {
+            Fonts.font35.drawStringWithShadow(
+                "Wi-Fi SSID (saved password)",
+                wifiSsidField.xPosition + 4f,
+                wifiSsidField.yPosition + (wifiSsidField.height - Fonts.font35.FONT_HEIGHT) / 2F,
+                0xffffff,
+            )
+        }
+
         val statusLine = ConnectToRouter.statusLine
         val statusColor = ConnectToRouter.statusColor
-        Fonts.font40.drawCenteredStringWithShadow(statusLine, width / 2f, height / 4f + 105f, statusColor)
+        Fonts.font40.drawCenteredStringWithShadow(statusLine, width / 2f, statusTopY, statusColor)
 
         val tunnelText = if (ConnectToRouter.tunnelAvailable) {
             "Tunnel: running on port 25560"
@@ -57,7 +92,7 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
             "Tunnel: not running  (start router_tunnel first)"
         }
         val tunnelColor = if (ConnectToRouter.tunnelAvailable) 5635925 else 16746496
-        Fonts.font35.drawCenteredStringWithShadow(tunnelText, width / 2f, height / 4f + 125f, tunnelColor)
+        Fonts.font35.drawCenteredStringWithShadow(tunnelText, width / 2f, statusTopY + 20f, tunnelColor)
 
         val ifaceText = when {
             ConnectToRouter.tunnelAvailable ->
@@ -68,16 +103,25 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
 
             else -> "Interface: unknown"
         }
-        Fonts.font35.drawCenteredStringWithShadow(ifaceText, width / 2f, height / 4f + 142f, Color.WHITE.rgb)
+        Fonts.font35.drawCenteredStringWithShadow(ifaceText, width / 2f, statusTopY + 37f, Color.WHITE.rgb)
 
         val vpnText = "VPN detected: ${if (ConnectToRouter.vpnDetected) "Yes" else "No"}"
-        Fonts.font35.drawCenteredStringWithShadow(vpnText, width / 2f, height / 4f + 159f, Color.WHITE.rgb)
+        Fonts.font35.drawCenteredStringWithShadow(vpnText, width / 2f, statusTopY + 54f, Color.WHITE.rgb)
+
+        if (ConnectToRouter.wifiCommandStatusLine.isNotBlank()) {
+            Fonts.font35.drawCenteredStringWithShadow(
+                ConnectToRouter.wifiCommandStatusLine,
+                width / 2f,
+                statusTopY + 71f,
+                ConnectToRouter.wifiCommandStatusColor,
+            )
+        }
 
         if (ConnectToRouter.wasAutoDisabled) {
             Fonts.font35.drawCenteredStringWithShadow(
                 "Auto-disabled: ${ConnectToRouter.autoDisableReason}",
                 width / 2f,
-                height / 4f + 180f,
+                statusTopY + 92f,
                 16746496,
             )
         }
@@ -91,7 +135,16 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
             return
         }
 
+        if (wifiSsidField.isFocused) {
+            wifiSsidField.textboxKeyTyped(typedChar, keyCode)
+        }
+
         super.keyTyped(typedChar, keyCode)
+    }
+
+    override fun mouseClicked(mouseX: Int, mouseY: Int, mouseButton: Int) {
+        wifiSsidField.mouseClicked(mouseX, mouseY, mouseButton)
+        super.mouseClicked(mouseX, mouseY, mouseButton)
     }
 
     override fun onGuiClosed() {

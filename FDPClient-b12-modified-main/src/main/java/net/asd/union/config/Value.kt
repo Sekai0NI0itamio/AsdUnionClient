@@ -118,7 +118,8 @@ sealed class Value<T>(
     open fun isSupported() = isSupported?.invoke() != false
 
     open fun setSupport(condition: (Boolean) -> Boolean) {
-        isSupported = { condition(isSupported()) }
+        val currentValue = isSupported()
+        isSupported = { condition(currentValue) }
     }
 
     // Support for delegating values using the `by` keyword.

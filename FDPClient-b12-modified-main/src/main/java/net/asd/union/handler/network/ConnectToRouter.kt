@@ -19,12 +19,15 @@ import java.util.Locale
 
 object ConnectToRouter : MinecraftInstance, Listenable {
     const val TUNNEL_PORT = 25560
+    private const val CMD_WIFI_CONNECT = 2
 
     private const val AUTO_DISABLE_THRESHOLD = 3
     private const val ULTRA_REFRESH_DEBOUNCE_MS = 150L
 
     private val interfaceRegex = Regex("\"interface\":\"([^\"]+)\"")
     private val ipRegex = Regex("\"ip\":\"([^\"]+)\"")
+    private val wifiOkRegex = Regex("\"ok\":(true|false)")
+    private val wifiMessageRegex = Regex("\"message\":\"([^\"]*)\"")
     private val vpnMarkers = arrayOf(
         "tun", "tap", "ppp", "wg", "utun", "ipsec", "vpn", "wireguard", "tailscale", "zerotier",
     )
@@ -65,6 +68,22 @@ object ConnectToRouter : MinecraftInstance, Listenable {
         private set
 
     var tunnelIp = ""
+        private set
+
+    @Volatile
+    var wifiCommandInProgress = false
+        private set
+
+    @Volatile
+    var wifiCommandStatusLine = ""
+        private set
+
+    @Volatile
+    var wifiCommandStatusColor = 0xAAAAAA
+        private set
+
+    @Volatile
+    var lastRequestedWifiSsid = ""
         private set
 
     var wasAutoDisabled = false
@@ -257,6 +276,103 @@ object ConnectToRouter : MinecraftInstance, Listenable {
         }
     }
 
+    data class WifiConnectResult(
+        val ok: Boolean,
+        val message: String,
+        val rawJson: String,
+    )
+
+    fun connectWifiThroughTunnel(ssid: String) {
+        val trimmed = ssid.trim()
+        if (trimmed.isEmpty()) {
+            wifiCommandStatusLine = "Wi-Fi: SSID is empty"
+            wifiCommandStatusColor = 0xFF5555
+            return
+        }
+
+        if (!isMacOs()) {
+            wifiCommandStatusLine = "Wi-Fi: only supported on macOS"
+            wifiCommandStatusColor = 0xFF5555
+            return
+        }
+
+        if (wifiCommandInProgress) {
+            wifiCommandStatusLine = "Wi-Fi: already connecting…"
+            wifiCommandStatusColor = 0xFFFF55
+            return
+        }
+
+        lastRequestedWifiSsid = trimmed
+        wifiCommandInProgress = true
+        wifiCommandStatusLine = "Wi-Fi: connecting to $trimmed…"
+        wifiCommandStatusColor = 0xFFFF55
+
+        Thread {
+            try {
+                val result = requestWifiConnect(trimmed)
+                wifiCommandStatusLine = if (result.ok) {
+                    if (result.message.isNotBlank()) {
+                        "Wi-Fi: ${result.message}"
+                    } else {
+                        "Wi-Fi: connected to $trimmed"
+                    }
+                } else {
+                    "Wi-Fi: ${result.message.ifBlank { "Failed" }}"
+                }
+                wifiCommandStatusColor = if (result.ok) 0x55FF55 else 0xFF5555
+
+                Thread.sleep(1500)
+                sendRefreshPacket()
+                refreshStatus()
+            } catch (throwable: Throwable) {
+                wifiCommandStatusLine = "Wi-Fi: ${throwable.message ?: throwable::class.java.simpleName}"
+                wifiCommandStatusColor = 0xFF5555
+            } finally {
+                wifiCommandInProgress = false
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    fun requestWifiConnect(ssid: String): WifiConnectResult {
+        val trimmed = ssid.trim()
+        if (trimmed.isEmpty()) {
+            return WifiConnectResult(ok = false, message = "SSID is empty", rawJson = "")
+        }
+
+        val payload = trimmed.toByteArray(Charsets.UTF_8)
+        if (payload.isEmpty() || payload.size > 250) {
+            return WifiConnectResult(ok = false, message = "SSID is too long", rawJson = "")
+        }
+
+        return runCatching {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", TUNNEL_PORT), 1000)
+                socket.soTimeout = 120_000
+
+                val output = socket.getOutputStream()
+                output.write(CMD_WIFI_CONNECT)
+                output.write(payload.size)
+                output.write(payload)
+                output.flush()
+
+                val input = socket.getInputStream()
+                val length = input.read()
+                if (length <= 0) {
+                    WifiConnectResult(ok = false, message = "No response from tunnel", rawJson = "")
+                } else {
+                    val json = readSizedPayload(input, length)
+                    logDebug("Tunnel Wi-Fi response: $json")
+
+                    val ok = wifiOkRegex.find(json)?.groupValues?.getOrNull(1)?.equals("true", ignoreCase = true) == true
+                    val message = wifiMessageRegex.find(json)?.groupValues?.getOrNull(1).orEmpty()
+                    WifiConnectResult(ok = ok, message = message, rawJson = json)
+                }
+            }
+        }.getOrElse {
+            WifiConnectResult(ok = false, message = it.message ?: it::class.java.simpleName, rawJson = "")
+        }
+    }
+
     private fun checkTunnel(): TunnelCheckResult {
         return runCatching {
             Socket().use { socket ->
@@ -281,6 +397,11 @@ object ConnectToRouter : MinecraftInstance, Listenable {
             logDebug("Tunnel check failed: ${it.message}")
             TunnelCheckResult(false, "", "")
         }
+    }
+
+    private fun isMacOs(): Boolean {
+        val os = System.getProperty("os.name") ?: return false
+        return os.lowercase(Locale.ENGLISH).contains("mac")
     }
 
     private fun onDetectionFailed(reason: String, allowAutoDisable: Boolean = true) {
