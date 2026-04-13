@@ -22,6 +22,8 @@ object ConnectToRouter : MinecraftInstance, Listenable {
     const val TUNNEL_PORT = 25560
     private const val CMD_WIFI_CONNECT = 2
     private const val CMD_WIFI_LIST = 3
+    private const val CMD_PHONE_CONNECT = 4
+    private const val CMD_PHONE_DISCONNECT = 5
 
     private const val AUTO_DISABLE_THRESHOLD = 3
     private const val ULTRA_REFRESH_DEBOUNCE_MS = 150L
@@ -313,6 +315,12 @@ object ConnectToRouter : MinecraftInstance, Listenable {
         val rawJson: String,
     )
 
+    data class PhoneConnectResult(
+        val ok: Boolean,
+        val message: String,
+        val rawJson: String,
+    )
+
     fun setRequestedWifiSsid(ssid: String) {
         lastRequestedWifiSsid = ssid.trim()
     }
@@ -485,6 +493,78 @@ object ConnectToRouter : MinecraftInstance, Listenable {
             }
         }.getOrElse {
             WifiListResult(ok = false, networks = emptyList(), message = it.message ?: it::class.java.simpleName, rawJson = "")
+        }
+    }
+
+    fun requestPhoneConnect(host: String, port: Int, password: String): PhoneConnectResult {
+        val safeHost = host.trim()
+        val safePassword = password.trim()
+        val safePort = if (port in 1..65535) port else 45454
+
+        if (safeHost.isEmpty()) {
+            return PhoneConnectResult(false, "Host is empty", "")
+        }
+        if (safePassword.isEmpty()) {
+            return PhoneConnectResult(false, "Password is empty", "")
+        }
+
+        return runCatching {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", TUNNEL_PORT), 1000)
+                socket.soTimeout = 10_000
+
+                val hostBytes = safeHost.toByteArray(Charsets.UTF_8)
+                val passBytes = safePassword.toByteArray(Charsets.UTF_8)
+                if (hostBytes.isEmpty() || hostBytes.size > 250) {
+                    return@use PhoneConnectResult(false, "Host too long", "")
+                }
+                if (passBytes.isEmpty() || passBytes.size > 250) {
+                    return@use PhoneConnectResult(false, "Password too long", "")
+                }
+
+                val output = socket.getOutputStream()
+                output.write(CMD_PHONE_CONNECT)
+                output.write(hostBytes.size)
+                output.write(hostBytes)
+                output.write((safePort shr 8) and 0xFF)
+                output.write(safePort and 0xFF)
+                output.write(passBytes.size)
+                output.write(passBytes)
+                output.flush()
+
+                val json = readFramedPayload(socket.getInputStream())
+                if (json.isBlank()) {
+                    PhoneConnectResult(false, "No response from tunnel", "")
+                } else {
+                    val ok = wifiOkRegex.find(json)?.groupValues?.getOrNull(1)?.equals("true", ignoreCase = true) == true
+                    val message = wifiMessageRegex.find(json)?.groupValues?.getOrNull(1).orEmpty()
+                    PhoneConnectResult(ok, message, json)
+                }
+            }
+        }.getOrElse {
+            PhoneConnectResult(false, it.message ?: it::class.java.simpleName, "")
+        }
+    }
+
+    fun requestPhoneDisconnect(): PhoneConnectResult {
+        return runCatching {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", TUNNEL_PORT), 1000)
+                socket.soTimeout = 2000
+                socket.getOutputStream().write(CMD_PHONE_DISCONNECT)
+                socket.getOutputStream().flush()
+
+                val json = readFramedPayload(socket.getInputStream())
+                if (json.isBlank()) {
+                    PhoneConnectResult(false, "No response from tunnel", "")
+                } else {
+                    val ok = wifiOkRegex.find(json)?.groupValues?.getOrNull(1)?.equals("true", ignoreCase = true) == true
+                    val message = wifiMessageRegex.find(json)?.groupValues?.getOrNull(1).orEmpty()
+                    PhoneConnectResult(ok, message, json)
+                }
+            }
+        }.getOrElse {
+            PhoneConnectResult(false, it.message ?: it::class.java.simpleName, "")
         }
     }
 

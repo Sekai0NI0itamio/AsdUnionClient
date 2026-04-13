@@ -92,7 +92,9 @@ class TunnelService : Service() {
                 val line = readLine(input) ?: return
 
                 if (line.startsWith("PING")) {
-                    writeLine(output, "PONG ${Build.MODEL}")
+                    val label = getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE)
+                        .getString(MainActivity.KEY_NAME, "My Internet").orEmpty()
+                    writeLine(output, "PONG $label")
                     return
                 }
 

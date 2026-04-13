@@ -15,6 +15,8 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
     private lateinit var refreshButton: GuiButton
     private lateinit var copyButton: GuiButton
     private lateinit var savePasswordButton: GuiButton
+    private lateinit var connectButton: GuiButton
+    private lateinit var disconnectButton: GuiButton
     private lateinit var backButton: GuiButton
     private lateinit var networksList: NetworksList
     private lateinit var passwordField: GuiTextField
@@ -26,10 +28,12 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
         networksList = NetworksList(this, top = 108, bottom = bottomY - 10)
         networksList.registerScrollButtons(7, 8)
 
-        refreshButton = +GuiButton(1, centerX, bottomY, 96, 20, "Refresh")
-        copyButton = +GuiButton(3, centerX + 104, bottomY, 96, 20, "Copy IP")
+        refreshButton = +GuiButton(1, centerX, bottomY, 64, 20, "Refresh")
+        copyButton = +GuiButton(3, centerX + 68, bottomY, 64, 20, "Copy")
+        connectButton = +GuiButton(5, centerX + 136, bottomY, 64, 20, "Connect")
+        disconnectButton = +GuiButton(6, centerX, bottomY + 25, 96, 20, "Disconnect")
         savePasswordButton = +GuiButton(4, centerX + 104, 78, 96, 20, "Save")
-        backButton = +GuiButton(0, centerX, bottomY + 25, 200, 20, "Back")
+        backButton = +GuiButton(0, centerX + 104, bottomY + 25, 96, 20, "Back")
 
         passwordField = GuiTextField(10, Fonts.font35, centerX, 78, 96, 20).apply {
             maxStringLength = 64
@@ -49,6 +53,8 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
             1 -> ConnectToRouter.refreshWifiNetworksThroughTunnel()
             3 -> copySelected()
             4 -> savePassword()
+            5 -> connectSelected()
+            6 -> disconnectPhone()
         }
     }
 
@@ -86,7 +92,7 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
 
         val selected = ConnectToRouter.wifiNetworks.getOrNull(networksList.selectedSlot).orEmpty()
         if (selected.isNotBlank()) {
-            Fonts.font35.drawCenteredStringWithShadow("Selected: $selected", width / 2f, 60f, Color.WHITE.rgb)
+            Fonts.font35.drawCenteredStringWithShadow("Selected: ${formatDeviceLabel(selected)}", width / 2f, 60f, Color.WHITE.rgb)
         }
 
         networksList.drawScreen(mouseX, mouseY, partialTicks)
@@ -94,6 +100,8 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
         refreshButton.enabled = !ConnectToRouter.wifiListInProgress
         copyButton.enabled = selected.isNotBlank()
         savePasswordButton.enabled = passwordField.text.trim().isNotEmpty()
+        connectButton.enabled = selected.isNotBlank() && passwordField.text.trim().isNotEmpty()
+        disconnectButton.enabled = true
 
         super.drawScreen(mouseX, mouseY, partialTicks)
     }
@@ -135,8 +143,9 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
     private fun copySelected() {
         val index = networksList.selectedSlot
         val ssid = ConnectToRouter.wifiNetworks.getOrNull(index) ?: return
-        GuiScreen.setClipboardString(ssid)
-        ClientUtils.displayAlert("Copied device: $ssid")
+        val host = parseDeviceHost(ssid)
+        GuiScreen.setClipboardString(host)
+        ClientUtils.displayAlert("Copied device: ${formatDeviceLabel(ssid)}")
     }
 
     private fun savePassword() {
@@ -149,6 +158,53 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
         ConnectToRouter.setPhonePassword(value)
         val ok = ConnectToRouter.writePhonePasswordFile()
         ClientUtils.displayAlert(if (ok) "Phone password saved" else "Failed to save password")
+    }
+
+    private fun connectSelected() {
+        val selected = ConnectToRouter.wifiNetworks.getOrNull(networksList.selectedSlot) ?: return
+        val host = parseDeviceHost(selected)
+        val port = parseDevicePort(selected)
+        val password = passwordField.text.trim()
+
+        Thread {
+            val result = ConnectToRouter.requestPhoneConnect(host, port, password)
+            ClientUtils.displayAlert(
+                if (result.ok) "Phone tunnel connected" else "Connect failed: ${result.message.ifBlank { "Error" }}",
+            )
+            if (result.ok) {
+                ConnectToRouter.refreshStatus()
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    private fun disconnectPhone() {
+        Thread {
+            val result = ConnectToRouter.requestPhoneDisconnect()
+            ClientUtils.displayAlert(
+                if (result.ok) "Phone tunnel disconnected" else "Disconnect failed: ${result.message.ifBlank { "Error" }}",
+            )
+            if (result.ok) {
+                ConnectToRouter.refreshStatus()
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    private fun formatDeviceLabel(raw: String): String {
+        val parts = raw.split("|")
+        if (parts.size >= 2) {
+            return "${parts[1]} (${parts[0]})"
+        }
+        return raw
+    }
+
+    private fun parseDeviceHost(raw: String): String {
+        val parts = raw.split("|")
+        return parts.getOrNull(0).orEmpty()
+    }
+
+    private fun parseDevicePort(raw: String): Int {
+        val parts = raw.split("|")
+        return parts.getOrNull(2)?.toIntOrNull() ?: 45454
     }
 
     private inner class NetworksList(prevGui: GuiScreen, top: Int, bottom: Int) :

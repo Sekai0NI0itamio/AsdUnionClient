@@ -17,6 +17,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var ipView: TextView
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
+    private lateinit var nameField: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,10 +29,12 @@ class MainActivity : AppCompatActivity() {
         ipView = findViewById(R.id.ipView)
         startButton = findViewById(R.id.startButton)
         stopButton = findViewById(R.id.stopButton)
+        nameField = findViewById(R.id.nameField)
 
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         passwordField.setText(prefs.getString(KEY_PASSWORD, "").orEmpty())
         portField.setText(prefs.getInt(KEY_PORT, DEFAULT_PORT).toString())
+        nameField.setText(prefs.getString(KEY_NAME, "My Internet").orEmpty())
 
         passwordField.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -42,6 +45,15 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        nameField.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val value = s?.toString()?.trim().orEmpty()
+                prefs.edit().putString(KEY_NAME, value).apply()
+            }
+        })
+
         startButton.setOnClickListener {
             val password = passwordField.text.toString().trim()
             val port = portField.text.toString().trim().toIntOrNull() ?: DEFAULT_PORT
@@ -49,6 +61,7 @@ class MainActivity : AppCompatActivity() {
 
             prefs.edit()
                 .putString(KEY_PASSWORD, password)
+                .putString(KEY_NAME, nameField.text.toString().trim())
                 .putInt(KEY_PORT, safePort)
                 .apply()
 
@@ -85,6 +98,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val PREFS = "router_tunnel_prefs"
         const val KEY_PASSWORD = "password"
+        const val KEY_NAME = "name"
         const val KEY_PORT = "port"
         const val DEFAULT_PORT = 45454
     }

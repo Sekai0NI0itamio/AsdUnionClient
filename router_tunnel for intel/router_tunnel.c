@@ -56,7 +56,7 @@
 #define SOCKET_BUFFER_BYTES (1 << 20)
 #define MAX_WIFI_NETWORKS   32
 #define MAX_DEVICE_RESULTS  64
-#define DEVICE_SCAN_TIMEOUT_MS 120
+#define DEVICE_SCAN_TIMEOUT_MS 150
 
 /* ---------- globals ---------- */
 
@@ -69,6 +69,7 @@ static char   g_phone_host[256]         = {0};
 static int    g_phone_port              = DEFAULT_PHONE_PORT;
 static char   g_phone_password[256]     = {0};
 static char   g_phone_password_file[512] = {0};
+static int    g_phone_enabled           = 0;
 
 /* ---------- helpers ---------- */
 
@@ -451,11 +452,6 @@ static int load_phone_password(void) {
     if (g_phone_password_file[0]) {
         return read_first_line_file(g_phone_password_file, g_phone_password, sizeof(g_phone_password));
     }
-    if (access("./router_tunnel.password", R_OK) == 0) {
-        strncpy(g_phone_password_file, "./router_tunnel.password", sizeof(g_phone_password_file) - 1);
-        g_phone_password_file[sizeof(g_phone_password_file) - 1] = '\0';
-        return read_first_line_file(g_phone_password_file, g_phone_password, sizeof(g_phone_password));
-    }
     return 0;
 }
 
@@ -529,7 +525,7 @@ static int phone_auth_and_connect(int fd, const char *host, unsigned short port,
 
 static int connect_via_phone(const char *host, unsigned short port,
                              char *rip, size_t rip_len) {
-    if (!g_phone_host[0]) return -1;
+    if (!g_phone_enabled || !g_phone_host[0]) return -1;
 
     struct addrinfo hints = {0}, *result, *ai;
     hints.ai_family   = AF_INET;
@@ -1263,7 +1259,7 @@ static int parse_handshake(const unsigned char *data, int data_len,
 static int connect_outbound(const char *host, unsigned short port,
                             char *rip, size_t rip_len)
 {
-    if (g_phone_host[0]) {
+    if (g_phone_enabled && g_phone_host[0]) {
         LOG("Connecting via phone proxy %s:%d", g_phone_host, g_phone_port);
         return connect_via_phone(host, port, rip, rip_len);
     }
@@ -1362,9 +1358,9 @@ static int probe_phone_device(const char *ip, int port, char *out_label, size_t 
 
     close(fd);
 
-    if (strncmp(line, "PONG", 4) != 0) return 0;
+    if (strncmp(line, "PONG ", 5) != 0) return 0;
 
-    snprintf(out_label, out_sz, "%s %s", ip, line + 4);
+    snprintf(out_label, out_sz, "%s|%s|%d", ip, line + 5, port);
     trim_whitespace(out_label);
     return 1;
 }
@@ -1411,8 +1407,27 @@ static int scan_phone_devices(char results[][128], int max_results, int *out_cou
         return 0;
     }
 
-    snprintf(out_msg, out_msg_sz, "Found %d device%s", *out_count, *out_count == 1 ? "" : "s");
+        snprintf(out_msg, out_msg_sz, "Found %d device%s", *out_count, *out_count == 1 ? "" : "s");
     return 1;
+}
+
+static void set_phone_target(const char *host, int port, const char *password) {
+    if (host && host[0]) {
+        strncpy(g_phone_host, host, sizeof(g_phone_host) - 1);
+        g_phone_host[sizeof(g_phone_host) - 1] = '\0';
+    }
+    if (port > 0 && port <= 65535) g_phone_port = port;
+    if (password && password[0]) {
+        strncpy(g_phone_password, password, sizeof(g_phone_password) - 1);
+        g_phone_password[sizeof(g_phone_password) - 1] = '\0';
+    }
+    g_phone_enabled = 1;
+}
+
+static void clear_phone_target(void) {
+    g_phone_enabled = 0;
+    g_phone_host[0] = '\0';
+    g_phone_password[0] = '\0';
 }
 
 static void relay_bidirectional(int client_fd, int remote_fd,
@@ -1583,6 +1598,72 @@ static void handle_control_client(int client_fd) {
         return;
     }
 
+    /* --- phone tunnel connect: 0x04 --- */
+    if (cmd == 0x04) {
+        unsigned char host_len = 0;
+        unsigned char pass_len = 0;
+        unsigned short port = DEFAULT_PHONE_PORT;
+
+        if (read_full(client_fd, &host_len, 1) != 1 || host_len == 0 || host_len > 250) {
+            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Missing host\"}");
+            close(client_fd);
+            return;
+        }
+
+        char host[256];
+        if (read_full(client_fd, host, host_len) != host_len) {
+            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Short host\"}");
+            close(client_fd);
+            return;
+        }
+        host[host_len] = '\0';
+
+        unsigned char port_hi = 0;
+        unsigned char port_lo = 0;
+        if (read_full(client_fd, &port_hi, 1) != 1 || read_full(client_fd, &port_lo, 1) != 1) {
+            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Missing port\"}");
+            close(client_fd);
+            return;
+        }
+        port = (unsigned short)((port_hi << 8) | port_lo);
+
+        if (read_full(client_fd, &pass_len, 1) != 1 || pass_len == 0 || pass_len > 250) {
+            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Missing password\"}");
+            close(client_fd);
+            return;
+        }
+
+        char password[256];
+        if (read_full(client_fd, password, pass_len) != pass_len) {
+            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Short password\"}");
+            close(client_fd);
+            return;
+        }
+        password[pass_len] = '\0';
+
+        set_phone_target(host, port, password);
+
+        char rip[INET_ADDRSTRLEN] = {0};
+        int fd = connect_via_phone("1.1.1.1", 443, rip, sizeof(rip));
+        if (fd >= 0) {
+            close(fd);
+            send_json(client_fd, "{\"status\":\"phone\",\"ok\":true,\"message\":\"Connected\"}");
+        } else {
+            clear_phone_target();
+            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Connect failed\"}");
+        }
+        close(client_fd);
+        return;
+    }
+
+    /* --- phone tunnel disconnect: 0x05 --- */
+    if (cmd == 0x05) {
+        clear_phone_target();
+        send_json(client_fd, "{\"status\":\"phone\",\"ok\":true,\"message\":\"Disconnected\"}");
+        close(client_fd);
+        return;
+    }
+
     send_json(client_fd, "{\"status\":\"error\",\"message\":\"Unknown command\"}");
     close(client_fd);
 }
@@ -1711,6 +1792,18 @@ static void handle_client(int client_fd) {
 
         send_json(client_fd, resp);
         close(client_fd);
+        return;
+    }
+
+    /* --- phone tunnel connect: first byte == 0x04 --- */
+    if (first == 0x04) {
+        handle_control_client(client_fd);
+        return;
+    }
+
+    /* --- phone tunnel disconnect: first byte == 0x05 --- */
+    if (first == 0x05) {
+        handle_control_client(client_fd);
         return;
     }
 
