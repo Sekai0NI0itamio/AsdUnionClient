@@ -140,13 +140,13 @@ public abstract class MixinMinecraft {
             
             // Load all configuration files first - this includes accounts.json, values.json, etc.
             // ValuesConfig.loadConfig() will automatically call ConnectToRouter.loadEnabledState(savedValue)
-            FileManager.loadAllConfigs();
+            FileManager.INSTANCE.loadAllConfigs();
             
             // Apply saved username BEFORE Minecraft can set default "itamio"
-            SessionStorage.applySavedUsername();
+            SessionStorage.INSTANCE.applySavedUsername();
             
             // Refresh router status with the loaded settings (ConnectToRouter.enabled should already be set)
-            ConnectToRouter.refreshStatus(false);
+            ConnectToRouter.INSTANCE.refreshStatus(false);
             
             LOGGER.info("[EarlyConfig] Successfully loaded configs before Minecraft initialization");
         } catch (Exception e) {
