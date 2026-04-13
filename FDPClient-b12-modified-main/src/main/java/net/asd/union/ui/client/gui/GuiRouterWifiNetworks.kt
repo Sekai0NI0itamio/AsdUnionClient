@@ -74,16 +74,12 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
 
         val status = when {
             !ConnectToRouter.tunnelAvailable -> ""
-            ConnectToRouter.wifiCommandInProgress -> ConnectToRouter.wifiCommandStatusLine.ifBlank { "Wi-Fi: connecting…" }
-            ConnectToRouter.wifiCommandStatusLine.isNotBlank() -> ConnectToRouter.wifiCommandStatusLine
             ConnectToRouter.wifiListInProgress -> "Device scan: loading…"
             ConnectToRouter.wifiListStatusLine.isNotBlank() -> ConnectToRouter.wifiListStatusLine
             else -> ""
         }
         if (status.isNotBlank()) {
             val color = when {
-                ConnectToRouter.wifiCommandInProgress -> 0xFFFF55
-                ConnectToRouter.wifiCommandStatusLine.isNotBlank() -> ConnectToRouter.wifiCommandStatusColor
                 ConnectToRouter.wifiListInProgress -> 0xFFFF55
                 else -> ConnectToRouter.wifiListStatusColor
             }
@@ -219,11 +215,6 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
 
         override fun elementClicked(clickedElement: Int, doubleClick: Boolean, mouseX: Int, mouseY: Int) {
             selectedSlot = clickedElement
-            val ssid = ConnectToRouter.wifiNetworks.getOrNull(clickedElement) ?: return
-            ConnectToRouter.setRequestedWifiSsid(ssid)
-            if (doubleClick) {
-                ConnectToRouter.connectWifiThroughTunnel(ssid)
-            }
         }
 
         override fun drawSlot(id: Int, x: Int, y: Int, var4: Int, var5: Int, var6: Int) {

@@ -1517,47 +1517,6 @@ static void handle_control_client(int client_fd) {
         return;
     }
 
-    /* --- Wi-Fi connect: 0x02 [1-byte len][ssid bytes] --- */
-    if (cmd == 0x02) {
-        unsigned char ssid_len = 0;
-        if (read_full(client_fd, &ssid_len, 1) != 1 || ssid_len == 0) {
-            send_json(client_fd, "{\"status\":\"wifi\",\"ok\":false,\"message\":\"Missing SSID\"}");
-            close(client_fd);
-            return;
-        }
-        if (ssid_len > 250) {
-            send_json(client_fd, "{\"status\":\"wifi\",\"ok\":false,\"message\":\"SSID too long\"}");
-            close(client_fd);
-            return;
-        }
-
-        char ssid[256];
-        if (read_full(client_fd, ssid, ssid_len) != ssid_len) {
-            send_json(client_fd, "{\"status\":\"wifi\",\"ok\":false,\"message\":\"Short read\"}");
-            close(client_fd);
-            return;
-        }
-        ssid[ssid_len] = '\0';
-
-        char msg[256];
-        int ok = wifi_connect(ssid, msg, sizeof(msg));
-
-        char esc_ssid[256];
-        char esc_msg[512];
-        json_escape(ssid, esc_ssid, sizeof(esc_ssid));
-        json_escape(msg[0] ? msg : (ok ? "Requested" : "Failed"), esc_msg, sizeof(esc_msg));
-
-        char resp[768];
-        snprintf(resp, sizeof(resp),
-                 "{\"status\":\"wifi\",\"ok\":%s,\"ssid\":\"%s\",\"message\":\"%s\",\"interface\":\"%s\",\"ip\":\"%s\"}",
-                 ok ? "true" : "false",
-                 esc_ssid, esc_msg, g_interface, g_local_ip);
-        resp[sizeof(resp) - 1] = '\0';
-        send_json(client_fd, resp);
-        close(client_fd);
-        return;
-    }
-
     /* --- Wi-Fi list: 0x03 --- */
     if (cmd == 0x03) {
         char devices[MAX_DEVICE_RESULTS][128];
@@ -1710,47 +1669,6 @@ static void handle_client(int client_fd) {
         unsigned char blen = (unsigned char)rlen;
         write(client_fd, &blen, 1);
         write(client_fd, resp, rlen);
-        close(client_fd);
-        return;
-    }
-
-    /* --- Wi-Fi connect: first byte == 0x02 --- */
-    if (first == 0x02) {
-        unsigned char ssid_len = 0;
-        if (read_full(client_fd, &ssid_len, 1) != 1 || ssid_len == 0) {
-            send_json(client_fd, "{\"status\":\"wifi\",\"ok\":false,\"message\":\"Missing SSID\"}");
-            close(client_fd);
-            return;
-        }
-        if (ssid_len > 250) {
-            send_json(client_fd, "{\"status\":\"wifi\",\"ok\":false,\"message\":\"SSID too long\"}");
-            close(client_fd);
-            return;
-        }
-
-        char ssid[256];
-        if (read_full(client_fd, ssid, ssid_len) != ssid_len) {
-            send_json(client_fd, "{\"status\":\"wifi\",\"ok\":false,\"message\":\"Short read\"}");
-            close(client_fd);
-            return;
-        }
-        ssid[ssid_len] = '\0';
-
-        char msg[256];
-        int ok = wifi_connect(ssid, msg, sizeof(msg));
-
-        char esc_ssid[256];
-        char esc_msg[512];
-        json_escape(ssid, esc_ssid, sizeof(esc_ssid));
-        json_escape(msg[0] ? msg : (ok ? "Requested" : "Failed"), esc_msg, sizeof(esc_msg));
-
-        char resp[768];
-        snprintf(resp, sizeof(resp),
-                 "{\"status\":\"wifi\",\"ok\":%s,\"ssid\":\"%s\",\"message\":\"%s\",\"interface\":\"%s\",\"ip\":\"%s\"}",
-                 ok ? "true" : "false",
-                 esc_ssid, esc_msg, g_interface, g_local_ip);
-        resp[sizeof(resp) - 1] = '\0';
-        send_json(client_fd, resp);
         close(client_fd);
         return;
     }
@@ -2260,7 +2178,7 @@ int main(int argc, char *argv[]) {
             if (!is_http) {
                 unsigned char first = 0;
                 ssize_t n = recv(cfd, &first, 1, MSG_PEEK | MSG_DONTWAIT);
-                if (n == 1 && (first == 0x00 || first == 0x01 || first == 0x02 || first == 0x03)) {
+                if (n == 1 && (first == 0x00 || first == 0x01 || first == 0x03 || first == 0x04 || first == 0x05)) {
                     handle_control_client(cfd);
                     continue;
                 }

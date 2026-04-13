@@ -64,7 +64,6 @@ The first byte determines the mode:
 
 - `0x00` Health check. Returns a length-prefixed JSON status and closes.
 - `0x01` Refresh. Re-detects gateway; with `--always-route`, also re-applies scoped route setup.
-- `0x02` Wi‑Fi connect. Request payload is `[1 byte ssidLen][ssid bytes]`. Uses saved Wi‑Fi password where possible; macOS may prompt for your computer password.
 - `0x03` Device scan. Returns a list of Android tunnel devices detected on the local subnet.
 - Any other byte is treated as the start of a Minecraft handshake packet.
 
@@ -106,20 +105,6 @@ The response format is:
 
 - 1 byte length `N` (0–254) followed by `N` bytes of UTF-8 JSON
 - If the length byte is `0xFF`, the next 2 bytes are a big-endian `uint16` length, followed by that many UTF-8 JSON bytes
-
-### Wi‑Fi connect (`0x02`)
-
-Request:
-
-- Send `0x02`
-- Send `ssidLen` (1 byte)
-- Send `ssid` bytes (UTF‑8)
-
-Response example:
-
-```json
-{"status":"wifi","ok":true,"ssid":"MyWiFi","message":"Requested","interface":"en0","ip":"192.168.50.139"}
-```
 
 ### Device scan (`0x03`)
 

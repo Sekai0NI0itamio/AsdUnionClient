@@ -140,7 +140,6 @@ Response example: `{"status":"ok","interface":"en0","ip":"192.168.50.139"}`
 ### Control commands
 
 - `0x01` — refresh gateway/route state (same response framing as health check)
-- `0x02` — connect Wi‑Fi SSID: request payload is `[1 byte ssidLen][ssid bytes]`, response includes `{"status":"wifi","ok":...,"message":"..."}`
 - `0x03` — device scan: response includes `{"status":"device_scan","ok":...,"networks":["ip|name|port",...]}`
 - `0x04` — phone connect: payload includes host, port, password; enables phone tunnel
 - `0x05` — phone disconnect: disables phone tunnel
