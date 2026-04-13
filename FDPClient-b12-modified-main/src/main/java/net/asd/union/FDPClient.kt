@@ -209,9 +209,11 @@ object FDPClient {
             // Load background
             FileManager.loadBackground()
 
-            // Configs are now loaded earlier in MixinMinecraft.loadConfigsEarly()
-            // This ensures saved settings are applied BEFORE Minecraft sets defaults
-            LOGGER.info("Configuration already loaded successfully (early initialization)")
+            // Load remaining configs now that fonts are ready
+            // Early loading already loaded accountsConfig and valuesConfig for router settings
+            // Now load clickgui.json and hud.json which require fonts to be initialized
+            FileManager.loadAllConfigs()
+            LOGGER.info("Configuration loaded successfully")
         } catch (e: Exception) {
             LOGGER.error("Failed to start client: ${e.message}")
         } finally {

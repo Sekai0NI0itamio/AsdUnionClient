@@ -56,7 +56,7 @@ clang -O2 -Wall -Wextra -o router_tunnel router_tunnel.c
 1. Start `./router_tunnel` in a terminal
 2. Launch Minecraft with FDPClient
 3. Go to **Multiplayer** → click **Router** → enable **ConnectToRouter**
-4. (macOS) Optional: enter a **Wi-Fi SSID** and click **Connect Wi-Fi** to switch the Wi-Fi network used by the tunnel (uses saved Wi-Fi password; macOS may prompt for your computer password)
+4. (macOS) Optional: open **Router Devices** to scan for Android tunnel devices on the local network
 5. The status should show **"Tunnel active"** with your physical interface info
 6. Join any server — traffic goes through your router, not the VPN
 
@@ -141,4 +141,17 @@ Response example: `{"status":"ok","interface":"en0","ip":"192.168.50.139"}`
 
 - `0x01` — refresh gateway/route state (same response framing as health check)
 - `0x02` — connect Wi‑Fi SSID: request payload is `[1 byte ssidLen][ssid bytes]`, response includes `{"status":"wifi","ok":...,"message":"..."}`
-- `0x03` — list saved Wi‑Fi networks: response includes `{"status":"wifi_list","ok":...,"networks":[...]}`
+- `0x03` — device scan: response includes `{"status":"device_scan","ok":...,"networks":[...]}`
+
+### Android phone tunnel (optional)
+
+RouterTunnel can forward traffic via an Android phone acting as a tunnel server.
+
+1. Start the Android app tunnel server (see Android app folder)
+2. Provide the phone IP and password to RouterTunnel:
+
+```bash
+./router_tunnel --phone-host 192.168.43.1 --phone-port 45454 --phone-password-file ./router_tunnel.password
+```
+
+You can also pass `--phone-password` directly, but a password file is recommended.

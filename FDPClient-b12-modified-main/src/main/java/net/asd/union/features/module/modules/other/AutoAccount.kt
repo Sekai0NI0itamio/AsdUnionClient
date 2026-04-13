@@ -5,10 +5,8 @@
  */
 package net.asd.union.features.module.modules.other
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import me.liuli.elixir.account.CrackedAccount
 import net.asd.union.config.ListValue
 import net.asd.union.config.TextValue
@@ -24,6 +22,7 @@ import net.asd.union.ui.client.hud.HUD.addNotification
 import net.asd.union.ui.client.hud.element.elements.Notification
 import net.asd.union.ui.client.hud.element.elements.Type
 import net.asd.union.utils.client.ServerUtils
+import net.minecraft.client.Minecraft
 import net.asd.union.utils.client.chat
 import net.asd.union.utils.kotlin.RandomUtils.randomAccount
 import net.asd.union.utils.kotlin.SharedScopes
@@ -192,10 +191,8 @@ object AutoAccount :
 
         SharedScopes.IO.launch {
             delay(sendDelay.toLong())
-            withContext(Dispatchers.Main) {
-                // connectToLastServer needs thread with OpenGL context
-                ServerUtils.connectToLastServer()
-            }
+            // connectToLastServer needs thread with OpenGL context
+            Minecraft.getMinecraft().addScheduledTask { ServerUtils.connectToLastServer() }
         }
     }
 

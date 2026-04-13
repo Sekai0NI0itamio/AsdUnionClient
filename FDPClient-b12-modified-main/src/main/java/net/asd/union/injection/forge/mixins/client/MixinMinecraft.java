@@ -21,6 +21,7 @@ import net.asd.union.utils.inventory.SilentHotbar;
 import net.asd.union.utils.io.MiscUtils;
 import net.asd.union.utils.performance.StartupProgress;
 import net.asd.union.utils.performance.StartupProgressRenderer;
+import net.asd.union.utils.client.SoundDisabler;
 import net.asd.union.utils.render.IconUtils;
 import net.asd.union.utils.render.MiniMapRegister;
 import net.asd.union.utils.render.RenderUtils;
@@ -138,9 +139,14 @@ public abstract class MixinMinecraft {
         try {
             LOGGER.info("[EarlyConfig] Loading configs before Minecraft initialization...");
             
-            // Load all configuration files first - this includes accounts.json, values.json, etc.
-            // ValuesConfig.loadConfig() will automatically call ConnectToRouter.loadEnabledState(savedValue)
-            FileManager.INSTANCE.loadAllConfigs();
+            // Disable sound for Apple Silicon to prevent OpenAL crashes
+            SoundDisabler.INSTANCE.disableSoundForAppleSilicon();
+            
+            // Only load essential configs that don't depend on fonts being initialized:
+            // - accountsConfig: needed for saved username/router settings
+            // - valuesConfig: needed for ConnectToRouter.enabled state
+            // Skip hudConfig, clickgui.json, etc. as they require fonts to be loaded first
+            FileManager.INSTANCE.loadConfigs(FileManager.INSTANCE.getAccountsConfig(), FileManager.INSTANCE.getValuesConfig());
             
             // Apply saved username BEFORE Minecraft can set default "itamio"
             SessionStorage.INSTANCE.applySavedUsername();

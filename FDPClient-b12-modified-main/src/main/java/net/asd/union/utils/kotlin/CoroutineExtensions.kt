@@ -6,7 +6,6 @@
 package net.asd.union.utils.kotlin
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.test.setMain
 import net.minecraft.client.Minecraft
 import net.minecraft.util.IThreadListener
 import kotlin.coroutines.CoroutineContext
@@ -20,8 +19,8 @@ object SharedScopes {
     val IO = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     init {
-        // Set dispatcher for Dispatchers.Main
-        Dispatchers.setMain(RenderDispatcher)
+        // Main dispatcher is not available in Minecraft without kotlinx-coroutines-test
+        // Using RenderDispatcher directly instead
     }
 
     fun stop() {

@@ -71,6 +71,10 @@ class ValuesConfig(file: File) : FileConfig(file) {
                     if (jsonValue.has("FixResourcePackExploit")) blockResourcePackExploit =
                         jsonValue["FixResourcePackExploit"].asBoolean
                     if (jsonValue.has("ConnectToRouter")) ConnectToRouter.loadEnabledState(jsonValue["ConnectToRouter"].asBoolean)
+                    if (jsonValue.has("RouterPhonePassword")) ConnectToRouter.setPhonePassword(
+                        jsonValue["RouterPhonePassword"].asString,
+                        persist = false,
+                    )
                     if (jsonValue.has("AntiSpawnLag")) AntiSpawnLag.enabled = jsonValue["AntiSpawnLag"].asBoolean
                     if (jsonValue.has("LazyChunks")) LazyChunkCache.enabled = jsonValue["LazyChunks"].asBoolean
                     if (jsonValue.has("AntiTranslucent")) AntiTranslucent.enabled =
@@ -138,6 +142,7 @@ class ValuesConfig(file: File) : FileConfig(file) {
             addProperty("AntiForgePayloads", blockPayloadPackets)
             addProperty("FixResourcePackExploit", blockResourcePackExploit)
             addProperty("ConnectToRouter", ConnectToRouter.persistedEnabled)
+            addProperty("RouterPhonePassword", ConnectToRouter.phonePassword)
             addProperty("AntiSpawnLag", AntiSpawnLag.enabled)
             addProperty("LazyChunks", LazyChunkCache.enabled)
             addProperty("AntiTranslucent", AntiTranslucent.enabled)

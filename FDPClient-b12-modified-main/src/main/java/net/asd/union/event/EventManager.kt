@@ -149,6 +149,13 @@ object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
     fun <T : Event> call(event: T): T {
         val hooks = registry[event.javaClass] ?: return event
 
+        val threadName = Thread.currentThread().name
+        if (threadName.startsWith("Server Pinger") || 
+            threadName.startsWith("Netty Client IO") || 
+            threadName.startsWith("Server Connector")) {
+            return event
+        }
+
         hooks.forEach { hook ->
             hook.processEvent(event)
         }
@@ -158,6 +165,13 @@ object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
 
     fun <T : Event> call(event: T, listener: Listenable): T {
         val hooks = registry[event.javaClass] ?: return event
+
+        val threadName = Thread.currentThread().name
+        if (threadName.startsWith("Server Pinger") || 
+            threadName.startsWith("Netty Client IO") || 
+            threadName.startsWith("Server Connector")) {
+            return event
+        }
 
         hooks.forEach { hook ->
             if (hook.owner === listener) {

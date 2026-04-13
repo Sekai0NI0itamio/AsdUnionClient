@@ -41,11 +41,13 @@
 #include <poll.h>
 #include <fcntl.h>
 #include <time.h>
+#include <sys/time.h>
 
 /* ---------- configuration ---------- */
 
 #define DEFAULT_PORT        25560
 #define DEFAULT_HTTP_PROXY_PORT 25561
+#define DEFAULT_PHONE_PORT  45454
 #define BUFFER_SIZE         65536
 #define CONNECT_TIMEOUT_MS  5000
 #define RELAY_TIMEOUT_MS    300000   /* 5 min idle */
@@ -53,6 +55,8 @@
 #define HTTP_HEADER_MAX     16384
 #define SOCKET_BUFFER_BYTES (1 << 20)
 #define MAX_WIFI_NETWORKS   32
+#define MAX_DEVICE_RESULTS  64
+#define DEVICE_SCAN_TIMEOUT_MS 120
 
 /* ---------- globals ---------- */
 
@@ -61,6 +65,10 @@ static char   g_interface[64]           = {0};
 static int    g_ifindex                 = 0;
 static char   g_local_ip[INET_ADDRSTRLEN] = {0};
 static int    g_always_route_setup      = 0;
+static char   g_phone_host[256]         = {0};
+static int    g_phone_port              = DEFAULT_PHONE_PORT;
+static char   g_phone_password[256]     = {0};
+static char   g_phone_password_file[512] = {0};
 
 /* ---------- helpers ---------- */
 
@@ -291,10 +299,11 @@ static int detect_interface(const char *manual_iface) {
     if (getifaddrs(&ifa_list) == -1) { ERR("getifaddrs: %s", strerror(errno)); return -1; }
 
     struct {
-        const char *name;
+        char        name[IFNAMSIZ];
         char        ip[INET_ADDRSTRLEN];
         int         index;
         int         priority;
+        unsigned int flags;
     } cand[32];
     int ncand = 0;
 
@@ -318,13 +327,16 @@ static int detect_interface(const char *manual_iface) {
         else if (strncmp(ifa->ifa_name, "en", 2)==0) pri = 10;
         else if (strncmp(ifa->ifa_name, "bridge",6)==0) pri = 50;
 
-        cand[ncand].name     = ifa->ifa_name;
+        strncpy(cand[ncand].name, ifa->ifa_name, sizeof(cand[ncand].name) - 1);
+        cand[ncand].name[sizeof(cand[ncand].name) - 1] = '\0';
         cand[ncand].index    = if_nametoindex(ifa->ifa_name);
         cand[ncand].priority = pri;
+        cand[ncand].flags    = (unsigned int)ifa->ifa_flags;
         inet_ntop(AF_INET,
                   &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr,
                   cand[ncand].ip, sizeof(cand[ncand].ip));
-        LOG("Candidate: %s (%s) priority=%d", ifa->ifa_name, cand[ncand].ip, pri);
+        LOG("Candidate: %s (%s) priority=%d flags=0x%x",
+            cand[ncand].name, cand[ncand].ip, pri, cand[ncand].flags);
         ncand++;
     }
     freeifaddrs(ifa_list);
@@ -410,6 +422,167 @@ static void send_json(int fd, const char *json) {
     write_full(fd, json, len);
 }
 
+static void trim_whitespace(char *s) {
+    size_t len;
+    if (!s) return;
+    len = strlen(s);
+    while (len > 0 && isspace((unsigned char)s[len - 1])) s[--len] = '\0';
+    size_t start = 0;
+    while (s[start] && isspace((unsigned char)s[start])) start++;
+    if (start > 0) memmove(s, s + start, len - start + 1);
+}
+
+static int read_first_line_file(const char *path, char *out, size_t out_sz) {
+    if (!path || !path[0] || out_sz == 0) return 0;
+    FILE *fp = fopen(path, "r");
+    if (!fp) return 0;
+    if (!fgets(out, (int)out_sz, fp)) {
+        fclose(fp);
+        out[0] = '\0';
+        return 0;
+    }
+    fclose(fp);
+    trim_whitespace(out);
+    return out[0] != '\0';
+}
+
+static int load_phone_password(void) {
+    if (g_phone_password[0]) return 1;
+    if (g_phone_password_file[0]) {
+        return read_first_line_file(g_phone_password_file, g_phone_password, sizeof(g_phone_password));
+    }
+    if (access("./router_tunnel.password", R_OK) == 0) {
+        strncpy(g_phone_password_file, "./router_tunnel.password", sizeof(g_phone_password_file) - 1);
+        g_phone_password_file[sizeof(g_phone_password_file) - 1] = '\0';
+        return read_first_line_file(g_phone_password_file, g_phone_password, sizeof(g_phone_password));
+    }
+    return 0;
+}
+
+static int read_line_timeout(int fd, char *out, size_t out_sz, int timeout_ms) {
+    if (out_sz == 0) return -1;
+    out[0] = '\0';
+
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    size_t used = 0;
+    while (used + 1 < out_sz) {
+        char c = 0;
+        ssize_t n = read(fd, &c, 1);
+        if (n <= 0) break;
+        if (c == '\n') break;
+        if (c == '\r') continue;
+        out[used++] = c;
+    }
+    out[used] = '\0';
+    return used > 0 ? 0 : -1;
+}
+
+static int phone_auth_and_connect(int fd, const char *host, unsigned short port,
+                                  char *out_err, size_t out_err_sz) {
+    char line[512];
+
+    if (!load_phone_password()) {
+        snprintf(out_err, out_err_sz, "Missing phone password");
+        return -1;
+    }
+
+    int n = snprintf(line, sizeof(line), "AUTH %s\n", g_phone_password);
+    if (n <= 0 || n >= (int)sizeof(line)) return -1;
+    if (write_full(fd, line, (size_t)n) != n) return -1;
+
+    if (read_line_timeout(fd, line, sizeof(line), 1500) != 0) {
+        snprintf(out_err, out_err_sz, "No auth response");
+        return -1;
+    }
+
+    if (strncmp(line, "OK ", 3) != 0) {
+        snprintf(out_err, out_err_sz, "Auth failed");
+        return -1;
+    }
+
+    const char *token = line + 3;
+    if (!token[0]) {
+        snprintf(out_err, out_err_sz, "Missing token");
+        return -1;
+    }
+
+    n = snprintf(line, sizeof(line), "CONNECT %s %u %s\n", host, port, token);
+    if (n <= 0 || n >= (int)sizeof(line)) return -1;
+    if (write_full(fd, line, (size_t)n) != n) return -1;
+
+    if (read_line_timeout(fd, line, sizeof(line), 4000) != 0) {
+        snprintf(out_err, out_err_sz, "No connect response");
+        return -1;
+    }
+
+    if (strcmp(line, "CONNECT OK") != 0) {
+        snprintf(out_err, out_err_sz, "%s", line);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int connect_via_phone(const char *host, unsigned short port,
+                             char *rip, size_t rip_len) {
+    if (!g_phone_host[0]) return -1;
+
+    struct addrinfo hints = {0}, *result, *ai;
+    hints.ai_family   = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%d", g_phone_port);
+
+    int err = getaddrinfo(g_phone_host, port_str, &hints, &result);
+    if (err != 0) {
+        ERR("Phone DNS failed for %s: %s", g_phone_host, gai_strerror(err));
+        return -1;
+    }
+
+    int last_errno = 0;
+    for (ai = result; ai; ai = ai->ai_next) {
+        int fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) {
+            last_errno = errno;
+            continue;
+        }
+
+        tune_socket(fd);
+
+        if (connect_with_timeout(fd, ai->ai_addr, ai->ai_addrlen, CONNECT_TIMEOUT_MS) != 0) {
+            last_errno = errno;
+            close(fd);
+            continue;
+        }
+
+        char err_msg[256];
+        if (phone_auth_and_connect(fd, host, port, err_msg, sizeof(err_msg)) != 0) {
+            ERR("Phone proxy error: %s", err_msg);
+            close(fd);
+            last_errno = ECONNABORTED;
+            continue;
+        }
+
+        struct timeval tv = {0};
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+        strncpy(rip, g_phone_host, rip_len - 1);
+        rip[rip_len - 1] = '\0';
+        freeaddrinfo(result);
+        return fd;
+    }
+
+    freeaddrinfo(result);
+    if (last_errno) errno = last_errno;
+    ERR("Phone connect failed: %s", strerror(errno));
+    return -1;
+}
+
 static void shell_quote_single(const char *in, char *out, size_t out_sz) {
     size_t o = 0;
     if (out_sz < 3) { if (out_sz) out[0] = '\0'; return; }
@@ -427,6 +600,164 @@ static void shell_quote_single(const char *in, char *out, size_t out_sz) {
     }
     out[o++] = '\'';
     out[o] = '\0';
+}
+
+static int get_console_user(char *out, size_t out_sz) {
+    if (out_sz == 0) return -1;
+    out[0] = '\0';
+
+    FILE *fp = popen("stat -f%Su /dev/console 2>/dev/null", "r");
+    if (!fp) return -1;
+
+    char line[128] = {0};
+    if (fgets(line, sizeof(line), fp)) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
+        if (len > 0 && strcmp(line, "root") != 0) {
+            strncpy(out, line, out_sz - 1);
+            out[out_sz - 1] = '\0';
+        }
+    }
+
+    pclose(fp);
+    return out[0] ? 0 : -1;
+}
+
+static void build_networksetup_prefix(char *out, size_t out_sz) {
+    out[0] = '\0';
+    if (geteuid() != 0) return;
+
+    char user[64] = {0};
+    if (get_console_user(user, sizeof(user)) != 0) return;
+
+    char quoted_user[128];
+    shell_quote_single(user, quoted_user, sizeof(quoted_user));
+    snprintf(out, out_sz, "sudo -u %s ", quoted_user);
+}
+
+static int output_has_error(const char *msg) {
+    if (!msg || msg[0] == '\0') return 0;
+
+    char lower[512];
+    size_t n = strlen(msg);
+    if (n >= sizeof(lower)) n = sizeof(lower) - 1;
+    for (size_t i = 0; i < n; i++) lower[i] = (char)tolower((unsigned char)msg[i]);
+    lower[n] = '\0';
+
+    return strstr(lower, "error") || strstr(lower, "failed") || strstr(lower, "authorizationcreate");
+}
+
+static void run_cmd_collect(const char *cmd, char *out_msg, size_t out_msg_sz) {
+    out_msg[0] = '\0';
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        snprintf(out_msg, out_msg_sz, "popen failed: %s", strerror(errno));
+        return;
+    }
+
+    char line[256];
+    size_t used = 0;
+    while (fgets(line, sizeof(line), fp) && used + 2 < out_msg_sz) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+            line[--len] = '\0';
+        }
+        if (len == 0) continue;
+
+        if (used > 0 && used + 2 < out_msg_sz) {
+            out_msg[used++] = ';';
+            out_msg[used++] = ' ';
+            out_msg[used] = '\0';
+        }
+
+        size_t copy = len;
+        if (copy > out_msg_sz - 1 - used) copy = out_msg_sz - 1 - used;
+        memcpy(out_msg + used, line, copy);
+        used += copy;
+        out_msg[used] = '\0';
+    }
+
+    pclose(fp);
+}
+
+static int get_wifi_password(const char *ssid, char *out_pw, size_t out_pw_sz,
+                             char *out_msg, size_t out_msg_sz)
+{
+    out_pw[0] = '\0';
+    out_msg[0] = '\0';
+
+    char prefix[128];
+    build_networksetup_prefix(prefix, sizeof(prefix));
+
+    char quoted_ssid[256];
+    shell_quote_single(ssid, quoted_ssid, sizeof(quoted_ssid));
+
+    char cmd[640];
+    snprintf(cmd, sizeof(cmd),
+             "%s/usr/bin/security find-generic-password -D 'AirPort network password' -a %s -w 2>/dev/null",
+             prefix, quoted_ssid);
+
+    LOG("Wi-Fi keychain lookup: %s/usr/bin/security find-generic-password -D 'AirPort network password' -a %s -w",
+        prefix, quoted_ssid);
+
+    FILE *fp = popen(cmd, "r");
+    if (!fp) {
+        snprintf(out_msg, out_msg_sz, "popen failed: %s", strerror(errno));
+        return 0;
+    }
+
+    char line[256] = {0};
+    if (fgets(line, sizeof(line), fp)) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+            line[--len] = '\0';
+        if (len > 0) {
+            if (len >= out_pw_sz) len = out_pw_sz - 1;
+            memcpy(out_pw, line, len);
+            out_pw[len] = '\0';
+        }
+    }
+
+    pclose(fp);
+
+    if (!out_pw[0]) {
+        snprintf(out_msg, out_msg_sz, "No Wi-Fi password found in keychain");
+        return 0;
+    }
+    return 1;
+}
+
+static int run_wifi_connect_cmd(const char *prefix,
+                                const char *wifi_iface,
+                                const char *quoted_ssid,
+                                const char *quoted_pw,
+                                int has_pw,
+                                char *out_msg,
+                                size_t out_msg_sz)
+{
+    char cmd[640];
+    char logcmd[640];
+    if (has_pw) {
+        snprintf(cmd, sizeof(cmd),
+                 "%s/usr/sbin/networksetup -setairportnetwork %s %s %s 2>&1",
+                 prefix, wifi_iface, quoted_ssid, quoted_pw);
+        snprintf(logcmd, sizeof(logcmd),
+                 "%s/usr/sbin/networksetup -setairportnetwork %s %s <password>",
+                 prefix, wifi_iface, quoted_ssid);
+    } else {
+        snprintf(cmd, sizeof(cmd),
+                 "%s/usr/sbin/networksetup -setairportnetwork %s %s 2>&1",
+                 prefix, wifi_iface, quoted_ssid);
+        snprintf(logcmd, sizeof(logcmd),
+                 "%s/usr/sbin/networksetup -setairportnetwork %s %s",
+                 prefix, wifi_iface, quoted_ssid);
+    }
+
+    LOG("Wi-Fi connect: %s", logcmd);
+    run_cmd_collect(cmd, out_msg, out_msg_sz);
+    return !output_has_error(out_msg);
 }
 
 static int detect_wifi_interface(char *out, size_t out_sz) {
@@ -480,61 +811,38 @@ static int wifi_connect(const char *ssid, char *out_msg, size_t out_msg_sz) {
     char quoted_ssid[256];
     shell_quote_single(ssid, quoted_ssid, sizeof(quoted_ssid));
 
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd),
-             "/usr/sbin/networksetup -setairportnetwork %s %s 2>&1",
-             wifi_iface, quoted_ssid);
+    char prefix[128];
+    build_networksetup_prefix(prefix, sizeof(prefix));
 
-    LOG("Wi-Fi connect: %s", cmd);
+    int ok = run_wifi_connect_cmd("", wifi_iface, quoted_ssid, NULL, 0,
+                                  out_msg, out_msg_sz);
 
-    FILE *fp = popen(cmd, "r");
-    if (!fp) {
-        snprintf(out_msg, out_msg_sz, "popen failed: %s", strerror(errno));
-        return 0;
-    }
-
-    char line[256];
-    size_t used = 0;
-    while (fgets(line, sizeof(line), fp) && used + 2 < out_msg_sz) {
-        size_t len = strlen(line);
-        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-            line[--len] = '\0';
+    if (!ok) {
+        char pw[256];
+        char pw_msg[256];
+        if (get_wifi_password(ssid, pw, sizeof(pw), pw_msg, sizeof(pw_msg))) {
+            char quoted_pw[256];
+            shell_quote_single(pw, quoted_pw, sizeof(quoted_pw));
+            LOG("Wi-Fi password found in keychain (len=%zu), retrying", strlen(pw));
+            ok = run_wifi_connect_cmd("", wifi_iface, quoted_ssid, quoted_pw, 1,
+                                      out_msg, out_msg_sz);
+            if (!ok && prefix[0]) {
+                LOG("Retrying Wi-Fi connect as console user");
+                ok = run_wifi_connect_cmd(prefix, wifi_iface, quoted_ssid, quoted_pw, 1,
+                                          out_msg, out_msg_sz);
+            }
+        } else if (pw_msg[0]) {
+            LOG("Wi-Fi password lookup: %s", pw_msg);
         }
-        if (len == 0) continue;
-
-        if (used > 0 && used + 2 < out_msg_sz) {
-            out_msg[used++] = ';';
-            out_msg[used++] = ' ';
-            out_msg[used] = '\0';
-        }
-
-        size_t copy = len;
-        if (copy > out_msg_sz - 1 - used) copy = out_msg_sz - 1 - used;
-        memcpy(out_msg + used, line, copy);
-        used += copy;
-        out_msg[used] = '\0';
     }
-    pclose(fp);
 
     /* allow DHCP/route to settle a bit */
     sleep(1);
     refresh_local_ip();
     detect_gateway();
 
-    if (out_msg[0] == '\0') {
-        return 1;
-    }
-
-    char lower[256];
-    size_t n = strlen(out_msg);
-    if (n >= sizeof(lower)) n = sizeof(lower) - 1;
-    for (size_t i = 0; i < n; i++) lower[i] = (char)tolower((unsigned char)out_msg[i]);
-    lower[n] = '\0';
-
-    if (strstr(lower, "error") || strstr(lower, "failed") || strstr(lower, "authorizationcreate")) {
-        return 0;
-    }
-    return 1;
+    if (out_msg[0] == '\0') return ok ? 1 : 0;
+    return ok ? 1 : 0;
 }
 
 static int wifi_list_preferred(char ssids[][128], int max_ssids, int *out_count,
@@ -553,10 +861,13 @@ static int wifi_list_preferred(char ssids[][128], int max_ssids, int *out_count,
         }
     }
 
-    char cmd[512];
+    char prefix[128];
+    build_networksetup_prefix(prefix, sizeof(prefix));
+
+    char cmd[640];
     snprintf(cmd, sizeof(cmd),
-             "/usr/sbin/networksetup -listpreferredwirelessnetworks %s 2>&1",
-             wifi_iface);
+             "%s/usr/sbin/networksetup -listpreferredwirelessnetworks %s 2>&1",
+             prefix, wifi_iface);
 
     LOG("Wi-Fi list: %s", cmd);
     FILE *fp = popen(cmd, "r");
@@ -625,44 +936,178 @@ static char g_gateway[64] = {0};
  * Uses: route -n get default -ifscope <interface>
  * Returns 0 on success, -1 on failure.
  */
-static int detect_gateway(void) {
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd),
-             "route -n get default -ifscope %s 2>/dev/null", g_interface);
-
-    LOG("Detecting gateway: %s", cmd);
-    FILE *fp = popen(cmd, "r");
-    if (!fp) { ERR("popen(route -n get) failed: %s", strerror(errno)); return -1; }
-
+static int parse_route_get_output(FILE *fp, char *out_gw, size_t out_gw_sz,
+                                  char *out_iface, size_t out_iface_sz,
+                                  char *out_dump, size_t out_dump_sz)
+{
     char line[512];
-    g_gateway[0] = '\0';
+    size_t used = 0;
+    out_gw[0] = '\0';
+    out_iface[0] = '\0';
+    if (out_dump_sz) out_dump[0] = '\0';
+
     while (fgets(line, sizeof(line), fp)) {
-        char *p = strstr(line, "gateway:");
-        if (!p) continue;
-        p += strlen("gateway:");
-        while (*p && isspace((unsigned char)*p)) p++;
-        if (!*p) continue;
+        char *p;
+        if ((p = strstr(line, "gateway:")) != NULL) {
+            p += strlen("gateway:");
+            while (*p && isspace((unsigned char)*p)) p++;
+            if (*p) {
+                char gw[64];
+                int j = 0;
+                while (*p && !isspace((unsigned char)*p) && j < (int)sizeof(gw) - 1)
+                    gw[j++] = *p++;
+                gw[j] = '\0';
+                struct in_addr tmp;
+                if (inet_pton(AF_INET, gw, &tmp) == 1) {
+                    strncpy(out_gw, gw, out_gw_sz - 1);
+                    out_gw[out_gw_sz - 1] = '\0';
+                }
+            }
+        } else if ((p = strstr(line, "interface:")) != NULL) {
+            p += strlen("interface:");
+            while (*p && isspace((unsigned char)*p)) p++;
+            if (*p) {
+                char ifn[64];
+                int j = 0;
+                while (*p && !isspace((unsigned char)*p) && j < (int)sizeof(ifn) - 1)
+                    ifn[j++] = *p++;
+                ifn[j] = '\0';
+                strncpy(out_iface, ifn, out_iface_sz - 1);
+                out_iface[out_iface_sz - 1] = '\0';
+            }
+        }
 
-        char gw[64];
-        int j = 0;
-        while (*p && !isspace((unsigned char)*p) && j < (int)sizeof(gw) - 1)
-            gw[j++] = *p++;
-        gw[j] = '\0';
-
-        struct in_addr tmp;
-        if (inet_pton(AF_INET, gw, &tmp) == 1) {
-            strncpy(g_gateway, gw, sizeof(g_gateway) - 1);
-            break;
+        if (out_dump_sz > 0 && used + strlen(line) + 1 < out_dump_sz) {
+            size_t len = strlen(line);
+            while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+                line[--len] = '\0';
+            if (len > 0) {
+                if (used > 0 && used + 2 < out_dump_sz) {
+                    out_dump[used++] = ';';
+                    out_dump[used++] = ' ';
+                }
+                size_t copy = len;
+                if (copy > out_dump_sz - 1 - used) copy = out_dump_sz - 1 - used;
+                memcpy(out_dump + used, line, copy);
+                used += copy;
+                out_dump[used] = '\0';
+            }
         }
     }
-    pclose(fp);
 
-    if (g_gateway[0] == '\0') {
-        ERR("Could not detect default gateway for %s", g_interface);
-        return -1;
+    return out_gw[0] ? 0 : -1;
+}
+
+static int detect_gateway(void) {
+    char cmd[256];
+    char gw[64] = {0};
+    char iface[64] = {0};
+    char dump[1024] = {0};
+
+    g_gateway[0] = '\0';
+
+    snprintf(cmd, sizeof(cmd),
+             "route -n get default -ifscope %s 2>/dev/null", g_interface);
+    LOG("Detecting gateway (ifscope): %s", cmd);
+    FILE *fp = popen(cmd, "r");
+    if (fp) {
+        (void)parse_route_get_output(fp, gw, sizeof(gw), iface, sizeof(iface), dump, sizeof(dump));
+        pclose(fp);
+        if (gw[0]) {
+            strncpy(g_gateway, gw, sizeof(g_gateway) - 1);
+            LOG("Detected gateway: %s (via %s)", g_gateway, g_interface);
+            return 0;
+        }
+        if (dump[0]) LOG("Gateway detect (ifscope) output: %s", dump);
+    } else {
+        ERR("popen(route -n get) failed: %s", strerror(errno));
     }
-    LOG("Detected gateway: %s (via %s)", g_gateway, g_interface);
-    return 0;
+
+    snprintf(cmd, sizeof(cmd),
+             "ipconfig getoption %s router 2>/dev/null", g_interface);
+    LOG("Detecting gateway (ipconfig): %s", cmd);
+    fp = popen(cmd, "r");
+    if (fp) {
+        char line[256] = {0};
+        if (fgets(line, sizeof(line), fp)) {
+            char *p = line;
+            while (*p && isspace((unsigned char)*p)) p++;
+            char ip[64] = {0};
+            int j = 0;
+            while (*p && !isspace((unsigned char)*p) && j < (int)sizeof(ip) - 1)
+                ip[j++] = *p++;
+            ip[j] = '\0';
+            struct in_addr tmp;
+            if (inet_pton(AF_INET, ip, &tmp) == 1) {
+                strncpy(g_gateway, ip, sizeof(g_gateway) - 1);
+                pclose(fp);
+                LOG("Detected gateway: %s (via %s)", g_gateway, g_interface);
+                return 0;
+            }
+        }
+        pclose(fp);
+    }
+
+    snprintf(cmd, sizeof(cmd), "route -n get default 2>/dev/null");
+    LOG("Detecting gateway (default route): %s", cmd);
+    fp = popen(cmd, "r");
+    if (fp) {
+        gw[0] = '\0';
+        iface[0] = '\0';
+        dump[0] = '\0';
+        (void)parse_route_get_output(fp, gw, sizeof(gw), iface, sizeof(iface), dump, sizeof(dump));
+        pclose(fp);
+        if (gw[0] && iface[0] && strcmp(iface, g_interface) == 0) {
+            strncpy(g_gateway, gw, sizeof(g_gateway) - 1);
+            LOG("Detected gateway: %s (via %s)", g_gateway, g_interface);
+            return 0;
+        }
+        if (dump[0]) LOG("Gateway detect (default route) output: %s", dump);
+    }
+
+    snprintf(cmd, sizeof(cmd), "netstat -rn -f inet 2>/dev/null");
+    LOG("Detecting gateway (netstat): %s", cmd);
+    fp = popen(cmd, "r");
+    if (fp) {
+        char line[512];
+        while (fgets(line, sizeof(line), fp)) {
+            char *p = line;
+            while (*p && isspace((unsigned char)*p)) p++;
+            if (strncmp(p, "default", 7) != 0 && strncmp(p, "0.0.0.0", 7) != 0)
+                continue;
+
+            char *tokens[16] = {0};
+            int ntok = 0;
+            char *save = NULL;
+            for (char *t = strtok_r(p, " \t\r\n", &save);
+                 t && ntok < 16;
+                 t = strtok_r(NULL, " \t\r\n", &save)) {
+                tokens[ntok++] = t;
+            }
+            if (ntok < 3) continue;
+
+            int has_iface = 0;
+            for (int i = 0; i < ntok; i++) {
+                if (strcmp(tokens[i], g_interface) == 0) {
+                    has_iface = 1;
+                    break;
+                }
+            }
+            if (!has_iface) continue;
+
+            struct in_addr tmp;
+            if (inet_pton(AF_INET, tokens[1], &tmp) == 1) {
+                strncpy(g_gateway, tokens[1], sizeof(g_gateway) - 1);
+                pclose(fp);
+                LOG("Detected gateway: %s (via %s)", g_gateway, g_interface);
+                return 0;
+            }
+        }
+        pclose(fp);
+    }
+
+    ERR("Could not detect default gateway for %s", g_interface);
+    return -1;
 }
 
 /**
@@ -818,6 +1263,11 @@ static int parse_handshake(const unsigned char *data, int data_len,
 static int connect_outbound(const char *host, unsigned short port,
                             char *rip, size_t rip_len)
 {
+    if (g_phone_host[0]) {
+        LOG("Connecting via phone proxy %s:%d", g_phone_host, g_phone_port);
+        return connect_via_phone(host, port, rip, rip_len);
+    }
+
     struct addrinfo hints = {0}, *result, *ai;
     hints.ai_family   = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -882,6 +1332,87 @@ retry_connect:
     if (last_errno) errno = last_errno;
     ERR("Connect to %s:%u failed: %s", host, port, strerror(errno));
     return -1;
+}
+
+static int probe_phone_device(const char *ip, int port, char *out_label, size_t out_sz) {
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((unsigned short)port);
+    if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) return 0;
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return 0;
+
+    if (connect_with_timeout(fd, (struct sockaddr *)&addr, sizeof(addr), DEVICE_SCAN_TIMEOUT_MS) != 0) {
+        close(fd);
+        return 0;
+    }
+
+    const char *ping = "PING\n";
+    if (write_full(fd, ping, strlen(ping)) < 0) {
+        close(fd);
+        return 0;
+    }
+
+    char line[256];
+    if (read_line_timeout(fd, line, sizeof(line), 300) != 0) {
+        close(fd);
+        return 0;
+    }
+
+    close(fd);
+
+    if (strncmp(line, "PONG", 4) != 0) return 0;
+
+    snprintf(out_label, out_sz, "%s %s", ip, line + 4);
+    trim_whitespace(out_label);
+    return 1;
+}
+
+static int scan_phone_devices(char results[][128], int max_results, int *out_count,
+                              char *out_msg, size_t out_msg_sz) {
+    *out_count = 0;
+    out_msg[0] = '\0';
+
+    if (!g_local_ip[0]) {
+        snprintf(out_msg, out_msg_sz, "No local IP");
+        return 0;
+    }
+
+    struct in_addr addr;
+    if (inet_pton(AF_INET, g_local_ip, &addr) != 1) {
+        snprintf(out_msg, out_msg_sz, "Bad local IP");
+        return 0;
+    }
+
+    unsigned int ip = ntohl(addr.s_addr);
+    unsigned int base = ip & 0xFFFFFF00u;
+    unsigned int self = ip & 0xFFu;
+
+    for (unsigned int i = 1; i <= 254 && *out_count < max_results; i++) {
+        if (i == self) continue;
+        unsigned int target = base | i;
+        struct in_addr taddr;
+        taddr.s_addr = htonl(target);
+
+        char ipbuf[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &taddr, ipbuf, sizeof(ipbuf));
+
+        char label[128];
+        if (probe_phone_device(ipbuf, g_phone_port, label, sizeof(label))) {
+            strncpy(results[*out_count], label, 127);
+            results[*out_count][127] = '\0';
+            (*out_count)++;
+        }
+    }
+
+    if (*out_count == 0) {
+        snprintf(out_msg, out_msg_sz, "No devices found");
+        return 0;
+    }
+
+    snprintf(out_msg, out_msg_sz, "Found %d device%s", *out_count, *out_count == 1 ? "" : "s");
+    return 1;
 }
 
 static void relay_bidirectional(int client_fd, int remote_fd,
@@ -1014,10 +1545,10 @@ static void handle_control_client(int client_fd) {
 
     /* --- Wi-Fi list: 0x03 --- */
     if (cmd == 0x03) {
-        char ssids[MAX_WIFI_NETWORKS][128];
+        char devices[MAX_DEVICE_RESULTS][128];
         int count = 0;
         char msg[256];
-        int ok = wifi_list_preferred(ssids, MAX_WIFI_NETWORKS, &count, msg, sizeof(msg));
+        int ok = scan_phone_devices(devices, MAX_DEVICE_RESULTS, &count, msg, sizeof(msg));
 
         char esc_msg[512];
         json_escape(msg, esc_msg, sizeof(esc_msg));
@@ -1025,14 +1556,14 @@ static void handle_control_client(int client_fd) {
         char resp[32768];
         size_t pos = 0;
         int n = snprintf(resp + pos, sizeof(resp) - pos,
-                         "{\"status\":\"wifi_list\",\"ok\":%s,\"count\":%d,\"message\":\"%s\",\"networks\":[",
-                         ok ? "true" : "false", count, esc_msg);
+                 "{\"status\":\"device_scan\",\"ok\":%s,\"count\":%d,\"message\":\"%s\",\"networks\":[",
+                 ok ? "true" : "false", count, esc_msg);
         if (n < 0) n = 0;
         pos += (size_t)n;
 
         for (int i = 0; i < count && pos + 8 < sizeof(resp); i++) {
             char esc_ssid[256];
-            json_escape(ssids[i], esc_ssid, sizeof(esc_ssid));
+            json_escape(devices[i], esc_ssid, sizeof(esc_ssid));
             n = snprintf(resp + pos, sizeof(resp) - pos,
                          "\"%s\"%s",
                          esc_ssid, (i + 1 < count) ? "," : "");
@@ -1145,10 +1676,10 @@ static void handle_client(int client_fd) {
 
     /* --- Wi-Fi list: first byte == 0x03 --- */
     if (first == 0x03) {
-        char ssids[MAX_WIFI_NETWORKS][128];
+        char devices[MAX_DEVICE_RESULTS][128];
         int count = 0;
         char msg[256];
-        int ok = wifi_list_preferred(ssids, MAX_WIFI_NETWORKS, &count, msg, sizeof(msg));
+        int ok = scan_phone_devices(devices, MAX_DEVICE_RESULTS, &count, msg, sizeof(msg));
 
         char esc_msg[512];
         json_escape(msg, esc_msg, sizeof(esc_msg));
@@ -1156,14 +1687,14 @@ static void handle_client(int client_fd) {
         char resp[32768];
         size_t pos = 0;
         int n = snprintf(resp + pos, sizeof(resp) - pos,
-                         "{\"status\":\"wifi_list\",\"ok\":%s,\"count\":%d,\"message\":\"%s\",\"networks\":[",
-                         ok ? "true" : "false", count, esc_msg);
+                 "{\"status\":\"device_scan\",\"ok\":%s,\"count\":%d,\"message\":\"%s\",\"networks\":[",
+                 ok ? "true" : "false", count, esc_msg);
         if (n < 0) n = 0;
         pos += (size_t)n;
 
         for (int i = 0; i < count && pos + 8 < sizeof(resp); i++) {
             char esc_ssid[256];
-            json_escape(ssids[i], esc_ssid, sizeof(esc_ssid));
+            json_escape(devices[i], esc_ssid, sizeof(esc_ssid));
             n = snprintf(resp + pos, sizeof(resp) - pos,
                          "\"%s\"%s",
                          esc_ssid, (i + 1 < count) ? "," : "");
@@ -1498,10 +2029,14 @@ static void print_usage(const char *prog) {
         "  --http-proxy PORT   HTTP proxy port (default %d)\n"
         "  --no-http-proxy     Disable HTTP proxy listener\n"
         "  --interface IFACE   Network interface (default auto-detect)\n"
+    "  --phone-host HOST   Use Android phone tunnel host (enables phone proxy)\n"
+    "  --phone-port PORT   Android phone tunnel port (default %d)\n"
+    "  --phone-password-file PATH   Password file for phone auth\n"
+    "  --phone-password PASSWORD    Password for phone auth (not recommended)\n"
         "  --always-route      Always install scoped default route at startup\n"
         "  --skip-test         Skip initial connectivity test\n"
         "  --help              Show this help\n",
-        prog, DEFAULT_PORT, DEFAULT_HTTP_PROXY_PORT);
+    prog, DEFAULT_PORT, DEFAULT_HTTP_PROXY_PORT, DEFAULT_PHONE_PORT);
 }
 
 int main(int argc, char *argv[]) {
@@ -1519,6 +2054,14 @@ int main(int argc, char *argv[]) {
             http_proxy_port = 0;
         else if (strcmp(argv[i], "--interface") == 0 && i + 1 < argc)
             man_iface = argv[++i];
+        else if (strcmp(argv[i], "--phone-host") == 0 && i + 1 < argc)
+            strncpy(g_phone_host, argv[++i], sizeof(g_phone_host) - 1);
+        else if (strcmp(argv[i], "--phone-port") == 0 && i + 1 < argc)
+            g_phone_port = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--phone-password-file") == 0 && i + 1 < argc)
+            strncpy(g_phone_password_file, argv[++i], sizeof(g_phone_password_file) - 1);
+        else if (strcmp(argv[i], "--phone-password") == 0 && i + 1 < argc)
+            strncpy(g_phone_password, argv[++i], sizeof(g_phone_password) - 1);
         else if (strcmp(argv[i], "--always-route") == 0)
             g_always_route_setup = 1;
         else if (strcmp(argv[i], "--skip-test") == 0)
@@ -1592,6 +2135,8 @@ int main(int argc, char *argv[]) {
     LOG("  Listening on 127.0.0.1:%d", listen_port);
     if (http_fd >= 0)
         LOG("  HTTP proxy on 127.0.0.1:%d", http_proxy_port);
+    if (g_phone_host[0])
+        LOG("  Phone proxy: %s:%d", g_phone_host, g_phone_port);
     LOG("  Interface: %s (%s)", g_interface, g_local_ip);
     LOG("  Route setup: %s", g_always_route_setup ? "always-on" : "on-demand fallback");
     LOG("  Traffic will bypass VPN via IP_BOUND_IF");

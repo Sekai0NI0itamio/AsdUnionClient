@@ -13,6 +13,8 @@ import net.asd.union.features.module.modules.movement.NoJumpDelay;
 import net.asd.union.features.module.modules.movement.Sprint;
 import net.asd.union.features.module.modules.client.Animations;
 import net.asd.union.features.module.modules.client.Rotations;
+import net.asd.union.features.module.modules.combat.ProjectileVelocity;
+import net.asd.union.features.module.modules.combat.RodVelocity;
 import net.asd.union.utils.rotation.RotationSettings;
 import net.asd.union.features.module.modules.player.scaffolds.Scaffold;
 import net.asd.union.features.module.modules.player.scaffolds.Tower;
@@ -22,11 +24,16 @@ import net.asd.union.utils.rotation.RotationUtils;
 import net.asd.union.utils.extensions.MathExtensionsKt;
 import net.minecraft.block.Block;
 import net.minecraft.client.entity.EntityPlayerSP;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.entity.projectile.EntityArrow;
+import net.minecraft.entity.projectile.EntityFishHook;
+import net.minecraft.entity.projectile.EntityPotion;
 import net.minecraft.item.ItemStack;
 import net.minecraft.potion.Potion;
 import net.minecraft.potion.PotionEffect;
 import net.minecraft.util.BlockPos;
+import net.minecraft.util.DamageSource;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
@@ -174,5 +181,31 @@ public abstract class MixinEntityLivingBase extends MixinEntity {
     public void onEntityUpdate(CallbackInfo info) {
         LivingUpdateEvent livingUpdateEvent = new LivingUpdateEvent((EntityLivingBase) (Object) this);
         EventManager.INSTANCE.call(livingUpdateEvent);
+    }
+
+    /**
+     * Detect projectile hits for ProjectileVelocity and RodVelocity modules
+     */
+    @Inject(method = "attackEntityFrom", at = @At("HEAD"))
+    private void onDamage(DamageSource source, float amount, CallbackInfoReturnable<Boolean> cir) {
+        Entity attacker = source.getEntity();
+        
+        if (attacker == null) {
+            return;
+        }
+        
+        if (attacker instanceof EntityArrow) {
+            if (ProjectileVelocity.INSTANCE.handleEvents()) {
+                ProjectileVelocity.INSTANCE.onProjectileHit();
+            }
+        } else if (attacker instanceof EntityPotion) {
+            if (ProjectileVelocity.INSTANCE.handleEvents()) {
+                ProjectileVelocity.INSTANCE.onProjectileHit();
+            }
+        } else if (attacker instanceof EntityFishHook) {
+            if (RodVelocity.INSTANCE.handleEvents()) {
+                RodVelocity.INSTANCE.onRodHit();
+            }
+        }
     }
 }

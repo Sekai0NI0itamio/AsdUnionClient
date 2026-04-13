@@ -125,7 +125,8 @@ public class MixinNetworkManager {
 
     @Inject(method = "sendPacket(Lnet/minecraft/network/Packet;)V", at = @At("HEAD"), cancellable = true)
     private void send(Packet<?> packet, CallbackInfo callback) {
-        if (!isServerPingerThread()) {
+        boolean isServerThread = isServerPingerThread();
+        if (!isServerThread) {
             PacketEvent event = new PacketEvent(packet, EventState.SEND);
             EventManager.INSTANCE.call(event);
             if (event.isCancelled()) {

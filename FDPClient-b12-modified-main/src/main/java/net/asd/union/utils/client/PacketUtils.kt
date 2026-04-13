@@ -57,7 +57,7 @@ object PacketUtils : MinecraftInstance, Listenable {
         }
     }
 
-    val onPacket = handler<PacketEvent>(dispatcher = Dispatchers.Main, priority = 2) { event ->
+    val onPacket = handler<PacketEvent>(dispatcher = Dispatchers.Unconfined, priority = 2) { event ->
         val world = mc.theWorld ?: return@handler
 
         when (val packet = event.packet) {

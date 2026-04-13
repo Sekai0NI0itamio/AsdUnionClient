@@ -2,7 +2,10 @@ package net.asd.union.utils.client;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.net.Socket;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
@@ -10,7 +13,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class ServerPingController {
+    private static final Logger PING_LOG = LogManager.getLogger("ServerPingController");
     private static final int CONNECT_TIMEOUT_MILLIS = 3000;
+    private static final int TUNNEL_PORT = 25560;
 
     private static final AtomicInteger REFRESH_GENERATION = new AtomicInteger();
     private static final Map<Future<?>, Integer> PING_TASKS = new java.util.concurrent.ConcurrentHashMap<>();
@@ -50,10 +55,46 @@ public final class ServerPingController {
         int newGeneration = REFRESH_GENERATION.incrementAndGet();
         cancelObsoletePingTasks(newGeneration);
         cancelObsoleteConnects(newGeneration);
+        
+        // Send a refresh packet to the tunnel to signal cleanup of old connections
+        refreshTunnelConnection();
+    }
+    
+    private static void refreshTunnelConnection() {
+        // Send multiple refresh packets to ensure tunnel state is clean
+        for (int i = 0; i < 3; i++) {
+            try {
+                Socket socket = new Socket();
+                socket.connect(new java.net.InetSocketAddress("127.0.0.1", TUNNEL_PORT), 500);
+                socket.setSoTimeout(500);
+                socket.getOutputStream().write(1); // Refresh command
+                socket.getOutputStream().flush();
+                // Read response if available
+                try {
+                    socket.getInputStream().read();
+                } catch (Exception ignored) {
+                }
+                socket.close();
+                break; // Success, stop retrying
+            } catch (Exception e) {
+                // Tunnel might not be running, that's okay
+                if (i == 2) {
+                    PING_LOG.debug("Tunnel refresh failed: " + e.getMessage());
+                }
+            }
+            // Small delay between refresh attempts
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ignored) {
+            }
+        }
     }
 
     public static boolean isServerPingerThread() {
-        return THREAD_GENERATION.get() != null || Thread.currentThread().getName().startsWith("Server Pinger");
+        return THREAD_GENERATION.get() != null || 
+               Thread.currentThread().getName().startsWith("Server Pinger") ||
+               Thread.currentThread().getName().startsWith("Netty Client IO") ||
+               Thread.currentThread().getName().startsWith("Server Connector");
     }
 
     public static boolean shouldCancelCurrentPing() {

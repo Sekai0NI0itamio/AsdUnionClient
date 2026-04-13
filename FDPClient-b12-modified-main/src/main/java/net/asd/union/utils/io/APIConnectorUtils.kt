@@ -78,7 +78,7 @@ object APIConnectorUtils {
                             val bufferedImage: BufferedImage = ImageIO.read(imageBytes)
                                 ?: throw IOException("Failed to decode image: $imageUrl")
 
-                            withContext(Dispatchers.Main) {
+                             MinecraftInstance.mc.addScheduledTask {
                                 try {
                                     val dynamicTexture = DynamicTexture(bufferedImage)
                                     val resourceLocation = MinecraftInstance.mc.textureManager.getDynamicTextureLocation(
@@ -86,7 +86,7 @@ object APIConnectorUtils {
                                         dynamicTexture
                                     )
 
-                                    cacheMutex.withLock {
+                                    synchronized(picturesCache) {
                                         picturesCache[Pair(fileName, picType)] = resourceLocation
                                     }
                                     LOGGER.info("Image loaded successfully: $fileName, Type: $picType")
@@ -115,7 +115,9 @@ object APIConnectorUtils {
      * @return The corresponding [ResourceLocation], or a default one if not found.
      */
     fun callImage(image: String, location: String): ResourceLocation {
-        return picturesCache[Pair(image, location)] ?: ResourceLocation("asdunionclient/temp.png")
+        return synchronized(picturesCache) {
+            picturesCache[Pair(image, location)] ?: ResourceLocation("asdunionclient/temp.png")
+        }
     }
 
     /**

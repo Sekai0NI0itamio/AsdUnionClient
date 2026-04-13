@@ -38,7 +38,7 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
         }
 
         wifiConnectButton = +GuiButton(4, centerX, startY + buttonSpacing * 3, "Connect Wi-Fi")
-        wifiNetworksButton = +GuiButton(5, centerX, startY + buttonSpacing * 4, "Wi-Fi Networks")
+        wifiNetworksButton = +GuiButton(5, centerX, startY + buttonSpacing * 4, "Router Devices")
         +GuiButton(0, centerX, startY + buttonSpacing * 5, "Back")
 
         statusTopY = startY + buttonSpacing * 6f + 10f
@@ -81,7 +81,7 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
         wifiSsidField.drawTextBox()
         if (wifiSsidField.text.isEmpty() && !wifiSsidField.isFocused) {
             Fonts.font35.drawStringWithShadow(
-                "Wi-Fi SSID (saved password)",
+                "Wi-Fi SSID (macOS only)",
                 wifiSsidField.xPosition + 4f,
                 wifiSsidField.yPosition + (wifiSsidField.height - Fonts.font35.FONT_HEIGHT) / 2F,
                 0xffffff,

@@ -125,6 +125,9 @@ object ConnectToRouter : MinecraftInstance, Listenable {
     var lastTcpError = ""
         private set
 
+    var phonePassword = ""
+        private set
+
     private var preferredAddress: InetAddress? = null
     private val refreshTimer = MSTimer()
     private var lastUltraFastRefreshAt = 0L
@@ -367,19 +370,19 @@ object ConnectToRouter : MinecraftInstance, Listenable {
 
     fun refreshWifiNetworksThroughTunnel() {
         if (!isMacOs()) {
-            wifiListStatusLine = "Wi-Fi list: only supported on macOS"
+            wifiListStatusLine = "Device scan: only supported on macOS"
             wifiListStatusColor = 0xFF5555
             return
         }
 
         if (wifiListInProgress) {
-            wifiListStatusLine = "Wi-Fi list: already loading…"
+            wifiListStatusLine = "Device scan: already loading…"
             wifiListStatusColor = 0xFFFF55
             return
         }
 
         wifiListInProgress = true
-        wifiListStatusLine = "Wi-Fi list: loading…"
+        wifiListStatusLine = "Device scan: loading…"
         wifiListStatusColor = 0xFFFF55
 
         Thread {
@@ -389,21 +392,37 @@ object ConnectToRouter : MinecraftInstance, Listenable {
                 wifiNetworksUpdatedAtMs = System.currentTimeMillis()
                 wifiListStatusLine = if (result.ok) {
                     if (result.message.isNotBlank()) {
-                        "Wi-Fi list: ${result.message}"
+                        "Device scan: ${result.message}"
                     } else {
-                        "Wi-Fi list: ${result.networks.size} networks"
+                        "Device scan: ${result.networks.size} devices"
                     }
                 } else {
-                    "Wi-Fi list: ${result.message.ifBlank { "Failed" }}"
+                    "Device scan: ${result.message.ifBlank { "Failed" }}"
                 }
                 wifiListStatusColor = if (result.ok) 0x55FF55 else 0xFF5555
             } catch (throwable: Throwable) {
-                wifiListStatusLine = "Wi-Fi list: ${throwable.message ?: throwable::class.java.simpleName}"
+                wifiListStatusLine = "Device scan: ${throwable.message ?: throwable::class.java.simpleName}"
                 wifiListStatusColor = 0xFF5555
             } finally {
                 wifiListInProgress = false
             }
         }.apply { isDaemon = true }.start()
+    }
+
+    fun setPhonePassword(value: String, persist: Boolean = true) {
+        phonePassword = value.trim()
+        if (persist) {
+            persistState()
+        }
+    }
+
+    fun writePhonePasswordFile(): Boolean {
+        if (phonePassword.isBlank()) return false
+        val file = java.io.File(FileManager.dir, "router_tunnel.password")
+        return runCatching {
+            FileManager.writeFile(file, phonePassword)
+            true
+        }.getOrDefault(false)
     }
 
     fun requestWifiConnect(ssid: String): WifiConnectResult {
@@ -460,7 +479,7 @@ object ConnectToRouter : MinecraftInstance, Listenable {
                 if (json.isBlank()) {
                     WifiListResult(ok = false, networks = emptyList(), message = "No response from tunnel", rawJson = "")
                 } else {
-                    logDebug("Tunnel Wi-Fi list response: $json")
+                    logDebug("Tunnel device scan response: $json")
                     parseWifiListJson(json)
                 }
             }

@@ -5,6 +5,7 @@
  */
 package net.asd.union.injection.forge.mixins.world;
 
+import net.asd.union.utils.client.ClientUtils;
 import net.asd.union.utils.render.MiniMapRegister;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.util.BlockPos;

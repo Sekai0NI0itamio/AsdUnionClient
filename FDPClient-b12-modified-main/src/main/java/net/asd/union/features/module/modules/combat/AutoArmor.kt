@@ -5,9 +5,7 @@
  */
 package net.asd.union.features.module.modules.combat
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import net.asd.union.config.IntegerValue
 import net.asd.union.config.boolean
 import net.asd.union.config.int
@@ -89,9 +87,7 @@ object AutoArmor : Module("AutoArmor", Category.COMBAT, hideModule = false) {
 
         var hasClickedHotbar = false
 
-        val stacks = withContext(Dispatchers.Main) {
-            thePlayer.openContainer.inventorySlots.map { it.stack }
-        }
+        val stacks = thePlayer.openContainer.inventorySlots.map { it.stack }
 
         val bestArmorSet = getBestArmorSet(stacks) ?: return
 
@@ -169,9 +165,7 @@ object AutoArmor : Module("AutoArmor", Category.COMBAT, hideModule = false) {
                 return
             }
 
-            val stacks = withContext(Dispatchers.Main) {
-                thePlayer.openContainer.inventorySlots.map { it.stack }
-            }
+            val stacks = thePlayer.openContainer.inventorySlots.map { it.stack }
 
             val armorSet = getBestArmorSet(stacks) ?: continue
 

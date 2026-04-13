@@ -80,14 +80,15 @@ dependencies {
     }
     // Kotlin
     include "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
-    include "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.3"
-    // Runtime code currently calls Dispatchers.setMain, so this stays until that setup is refactored.
-    include "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.3"
+    include "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.6.3"
 
     include "com.formdev:flatlaf:3.5.4"
 
     // Explicitly package the only known local runtime jar instead of shading any future file dropped in libs/.
     include files("libs/nashorn.jar")
+
+    // Realms - for mixin access to RealmsClient
+    compileOnly("com.mojang:realms:1.7.59")
 }
 
 shadowJar {

@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -25,21 +26,18 @@ public abstract class MixinOldServerPinger {
 
     @Inject(method = "pingPendingNetworks", at = @At("HEAD"), cancellable = true)
     private void fdp$pingPendingNetworksSafely(CallbackInfo ci) {
+        List<NetworkManager> toRemove = new ArrayList<>();
+        
         synchronized (this.pingDestinations) {
-            Iterator<NetworkManager> iterator = this.pingDestinations.iterator();
-
-            while (iterator.hasNext()) {
-                NetworkManager networkManager = iterator.next();
-
+            for (NetworkManager networkManager : this.pingDestinations) {
                 try {
                     if (networkManager.isChannelOpen()) {
                         networkManager.processReceivedPackets();
                     } else {
-                        iterator.remove();
-                        networkManager.checkDisconnected();
+                        toRemove.add(networkManager);
                     }
                 } catch (Throwable throwable) {
-                    iterator.remove();
+                    toRemove.add(networkManager);
 
                     Channel channel = networkManager.channel();
                     if (channel != null && channel.isOpen()) {
@@ -49,6 +47,15 @@ public abstract class MixinOldServerPinger {
                     PING_LOG.warn("Dropped a broken server ping request instead of crashing the multiplayer screen.", throwable);
                 }
             }
+            
+            // Remove collected failed networks
+            this.pingDestinations.removeAll(toRemove);
+            for (NetworkManager nm : toRemove) {
+                try {
+                    nm.checkDisconnected();
+                } catch (Exception ignored) {
+                }
+            }
         }
 
         ci.cancel();
@@ -56,17 +63,23 @@ public abstract class MixinOldServerPinger {
 
     @Inject(method = "clearPendingNetworks", at = @At("HEAD"), cancellable = true)
     private void fdp$clearPendingNetworksAsync(CallbackInfo ci) {
+        List<Channel> channelsToClose = new ArrayList<>();
+        
         synchronized (this.pingDestinations) {
-            Iterator<NetworkManager> iterator = this.pingDestinations.iterator();
-
-            while (iterator.hasNext()) {
-                NetworkManager networkManager = iterator.next();
-                iterator.remove();
-
+            for (NetworkManager networkManager : this.pingDestinations) {
                 Channel channel = networkManager.channel();
                 if (channel != null && channel.isOpen()) {
-                    channel.close();
+                    channelsToClose.add(channel);
                 }
+            }
+            this.pingDestinations.clear();
+        }
+        
+        // Close channels outside synchronized block to avoid deadlock
+        for (Channel channel : channelsToClose) {
+            try {
+                channel.close();
+            } catch (Exception ignored) {
             }
         }
 
