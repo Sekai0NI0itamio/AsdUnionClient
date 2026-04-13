@@ -32,12 +32,14 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
         copyButton = +GuiButton(3, centerX + 68, bottomY, 64, 20, "Copy")
         connectButton = +GuiButton(5, centerX + 136, bottomY, 64, 20, "Connect")
         disconnectButton = +GuiButton(6, centerX, bottomY + 25, 96, 20, "Disconnect")
+        private lateinit var hostField: GuiTextField
+        private lateinit var portField: GuiTextField
         savePasswordButton = +GuiButton(4, centerX + 104, 78, 96, 20, "Save")
         backButton = +GuiButton(0, centerX + 104, bottomY + 25, 96, 20, "Back")
 
         passwordField = GuiTextField(10, Fonts.font35, centerX, 78, 96, 20).apply {
             maxStringLength = 64
-            text = ConnectToRouter.phonePassword
+            networksList = NetworksList(this, top = 128, bottom = bottomY - 10)
         }
 
         val now = System.currentTimeMillis()
@@ -51,6 +53,14 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
         when (button.id) {
             0 -> mc.displayGuiScreen(prevGui)
             1 -> ConnectToRouter.refreshWifiNetworksThroughTunnel()
+
+            hostField = GuiTextField(11, Fonts.font35, centerX, 100, 128, 18).apply {
+                maxStringLength = 64
+            }
+            portField = GuiTextField(12, Fonts.font35, centerX + 132, 100, 64, 18).apply {
+                maxStringLength = 5
+                text = "45454"
+            }
             3 -> copySelected()
             4 -> savePassword()
             5 -> connectSelected()
@@ -72,6 +82,15 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
             Fonts.font35.drawStringWithShadow("Set password", passwordField.xPosition + 4f, 83f, 0xAAAAAA)
         }
 
+
+            Fonts.font35.drawStringWithShadow("Phone IP", (width / 2f) - 100f, 92f, Color.WHITE.rgb)
+            hostField.drawTextBox()
+            if (hostField.text.isEmpty() && !hostField.isFocused) {
+                Fonts.font35.drawStringWithShadow("192.168.x.x", hostField.xPosition + 4f, 114f, 0xAAAAAA)
+            }
+
+            Fonts.font35.drawStringWithShadow("Port", (width / 2f) + 40f, 92f, Color.WHITE.rgb)
+            portField.drawTextBox()
         val status = when {
             !ConnectToRouter.tunnelAvailable -> ""
             ConnectToRouter.wifiListInProgress -> "Device scan: loading…"
@@ -97,7 +116,8 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
         copyButton.enabled = selected.isNotBlank()
         savePasswordButton.enabled = passwordField.text.trim().isNotEmpty()
         connectButton.enabled = selected.isNotBlank() && passwordField.text.trim().isNotEmpty()
-        disconnectButton.enabled = true
+            connectButton.enabled = passwordField.text.trim().isNotEmpty() &&
+                (selected.isNotBlank() || hostField.text.trim().isNotEmpty())
 
         super.drawScreen(mouseX, mouseY, partialTicks)
     }
@@ -107,8 +127,16 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
         networksList.handleMouseInput()
     }
 
+            if (hostField.textboxKeyTyped(typedChar, keyCode)) {
+                return
+            }
+            if (portField.textboxKeyTyped(typedChar, keyCode)) {
+                return
+            }
     override fun updateScreen() {
         passwordField.updateCursorCounter()
+        hostField.updateCursorCounter()
+        portField.updateCursorCounter()
         super.updateScreen()
     }
 
@@ -119,13 +147,24 @@ class GuiRouterWifiNetworks(private val prevGui: GuiScreen) : AbstractScreen() {
         when (keyCode) {
             Keyboard.KEY_ESCAPE -> {
                 mc.displayGuiScreen(prevGui)
+            hostField.mouseClicked(mouseX, mouseY, mouseButton)
+            portField.mouseClicked(mouseX, mouseY, mouseButton)
                 return
             }
             Keyboard.KEY_C -> {
-                if (Keyboard.isKeyDown(Keyboard.KEY_LCONTROL)) {
-                    copySelected()
-                    return
+            val selected = ConnectToRouter.wifiNetworks.getOrNull(networksList.selectedSlot)
+            val manualHost = hostField.text.trim()
+            val host = if (manualHost.isNotEmpty()) manualHost else selected?.let { parseDeviceHost(it) }.orEmpty()
+            val port = if (manualHost.isNotEmpty()) {
+                portField.text.trim().toIntOrNull() ?: 45454
+            } else {
+                selected?.let { parseDevicePort(it) } ?: 45454
+            }
                 }
+            }
+            if (host.isBlank()) {
+                ClientUtils.displayAlert("Phone IP is empty")
+                return
             }
         }
         super.keyTyped(typedChar, keyCode)
