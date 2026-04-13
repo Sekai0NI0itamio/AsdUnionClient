@@ -1,4 +1,4 @@
-package com.asd.routertunnel
+package asd.itamio.routertunnel
 
 import java.net.Inet4Address
 import java.net.NetworkInterface

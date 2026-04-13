@@ -34,11 +34,18 @@ jobs:
           gradle-version: 8.0.2
 
       - name: Build release APK (unsigned)
-        run: gradle -p android-tunnel-app assembleRelease
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android-tunnel-app/keystore.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android-tunnel-app/keystore.jks
+          gradle -p android-tunnel-app assembleRelease
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-tunnel-app-unsigned
-          path: android-tunnel-app/app/build/outputs/apk/release/app-release-unsigned.apk
+          name: android-tunnel-app-release
+          path: android-tunnel-app/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error

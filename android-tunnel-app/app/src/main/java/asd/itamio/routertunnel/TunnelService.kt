@@ -1,4 +1,4 @@
-package com.asd.routertunnel
+package asd.itamio.routertunnel
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -200,7 +200,7 @@ class TunnelService : Service() {
         val channelId = ensureChannel()
         return NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle("Router Tunnel")
+            .setContentTitle("Itamio Router Tunnel")
             .setContentText(text)
             .setOngoing(true)
             .build()
@@ -217,7 +217,7 @@ class TunnelService : Service() {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = NotificationChannel(
                 channelId,
-                "Router Tunnel",
+                "Itamio Router Tunnel",
                 NotificationManager.IMPORTANCE_LOW,
             )
             manager.createNotificationChannel(channel)
@@ -241,8 +241,8 @@ class TunnelService : Service() {
     }
 
     companion object {
-        const val ACTION_START = "com.asd.routertunnel.START"
-        const val ACTION_STOP = "com.asd.routertunnel.STOP"
+        const val ACTION_START = "asd.itamio.routertunnel.START"
+        const val ACTION_STOP = "asd.itamio.routertunnel.STOP"
         const val NOTIFICATION_ID = 2001
         @Volatile
         var isRunning: Boolean = false

@@ -544,6 +544,10 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
 
         target ?: return@handler
 
+        if (SmartKillAura.state && !SmartKillAura.canAttackTarget(target)) {
+            return@handler
+        }
+
         if (attackTimer.hasTimePassed(attackDelay)) {
             if (maxCPS > 0) clicks++
             attackTimer.reset()
@@ -603,8 +607,13 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
 
         currentTarget = this.target ?: return
 
-        if (hittable && currentTarget.hurtTime > hurtTime) {
-            return
+        if (hittable) {
+            if (currentTarget.hurtTime > hurtTime) {
+                return
+            }
+            if (SmartKillAura.state && !SmartKillAura.canAttackTarget(currentTarget)) {
+                return
+            }
         }
 
         // Check if enemy is not hittable

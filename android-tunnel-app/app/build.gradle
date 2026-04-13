@@ -4,20 +4,30 @@ plugins {
 }
 
 android {
-    namespace "com.asd.routertunnel"
+    namespace "asd.itamio.routertunnel"
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.asd.routertunnel"
+        applicationId "asd.itamio.routertunnel"
         minSdk 29
         targetSdk 34
         versionCode 1
         versionName "1.0"
     }
 
+    signingConfigs {
+        release {
+            storeFile file(System.getenv("ANDROID_KEYSTORE_PATH") ?: "")
+            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.release
         }
     }
 
