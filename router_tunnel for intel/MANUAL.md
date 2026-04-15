@@ -64,7 +64,6 @@ The first byte determines the mode:
 
 - `0x00` Health check. Returns a length-prefixed JSON status and closes.
 - `0x01` Refresh. Re-detects gateway; with `--always-route`, also re-applies scoped route setup.
-- `0x03` Device scan. Returns a list of Android tunnel devices detected on the local subnet.
 - Any other byte is treated as the start of a Minecraft handshake packet.
 
 The Minecraft tunnel is not a generic TCP proxy. Use the HTTP proxy for general web traffic.
@@ -105,32 +104,6 @@ The response format is:
 
 - 1 byte length `N` (0–254) followed by `N` bytes of UTF-8 JSON
 - If the length byte is `0xFF`, the next 2 bytes are a big-endian `uint16` length, followed by that many UTF-8 JSON bytes
-
-### Device scan (`0x03`)
-
-Request:
-
-- Send `0x03`
-
-Response example:
-
-```json
-{"status":"device_scan","ok":true,"count":1,"message":"Found 1 device","networks":["192.168.43.1 Android"]}
-```
-
-## Android Phone Tunnel (Optional)
-
-You can route outbound connections through an Android phone acting as a tunnel server. This is useful
-when the Mac should not connect directly to the phone hotspot Wi-Fi but still wants to reach the Internet
-through the phone via RouterTunnel.
-
-Start the Android app tunnel server, then run RouterTunnel with the phone host and password:
-
-```bash
-./router_tunnel --phone-host 192.168.43.1 --phone-port 45454 --phone-password-file ./router_tunnel.password
-```
-
-The password file should contain a single line with the shared password.
 
 ## HTTP/HTTPS Proxy Behavior
 

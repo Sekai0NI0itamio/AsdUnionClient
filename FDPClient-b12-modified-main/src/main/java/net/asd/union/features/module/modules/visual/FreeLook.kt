@@ -10,6 +10,7 @@ import net.asd.union.event.RotationSetEvent
 import net.asd.union.event.handler
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
+import net.asd.union.features.module.modules.movement.Sneak
 import net.asd.union.utils.extensions.prevRotation
 import net.asd.union.utils.extensions.rotation
 import net.asd.union.utils.rotation.Rotation
@@ -17,6 +18,7 @@ import net.asd.union.utils.rotation.Rotation
 object FreeLook : Module("FreeLook", Category.VISUAL) {
 
     private val autoF5 by boolean("AutoF5", true, subjective = true)
+    private val blockPitchWhenSneaking by boolean("BlockPitchWhenSneaking", true, subjective = true)
 
     // The module's rotations
     private var currRotation = Rotation.ZERO
@@ -27,6 +29,11 @@ object FreeLook : Module("FreeLook", Category.VISUAL) {
     private var savedPrevRotation = Rotation.ZERO
 
     private var modifySavedRotations = true
+
+    private fun isSneakKeyManuallyPressed(): Boolean {
+        val sneakBind = mc.gameSettings.keyBindSneak
+        return sneakBind.isKeyDown && !Sneak.handleEvents()
+    }
 
     override fun onEnable() {
         mc.thePlayer?.run {
@@ -52,7 +59,16 @@ object FreeLook : Module("FreeLook", Category.VISUAL) {
         }
 
         prevRotation = currRotation
-        currRotation += Rotation(event.yawDiff, -event.pitchDiff)
+
+        val shouldBlockPitch = blockPitchWhenSneaking && 
+            (Sneak.handleEvents() || mc.thePlayer?.isSneaking == true) && 
+            !isSneakKeyManuallyPressed()
+
+        if (shouldBlockPitch) {
+            currRotation += Rotation(event.yawDiff, 0f)
+        } else {
+            currRotation += Rotation(event.yawDiff, -event.pitchDiff)
+        }
 
         currRotation.withLimitedPitch()
     }

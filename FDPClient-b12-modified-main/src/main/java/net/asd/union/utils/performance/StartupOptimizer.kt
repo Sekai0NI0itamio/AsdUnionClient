@@ -26,6 +26,11 @@ object StartupOptimizer {
     var skipNetworkRequests = true
     
     /**
+     * Whether network is blocked during startup (true = blocked, false = allowed)
+     */
+    var isNetworkBlocked = true
+    
+    /**
      * Use minimal font set for faster loading
      */
     var useMinimalFonts = true
@@ -110,6 +115,35 @@ object StartupOptimizer {
      */
     fun markFontExtracted(fontFile: String) {
         fontExtractionCache.add(fontFile)
+    }
+    
+    /**
+     * Block all network requests by setting system properties
+     */
+    fun blockNetwork() {
+        isNetworkBlocked = true
+        System.setProperty("http.proxyHost", "localhost")
+        System.setProperty("http.proxyPort", "1")
+        System.setProperty("https.proxyHost", "localhost")
+        System.setProperty("https.proxyPort", "1")
+        System.setProperty("ftp.proxyHost", "localhost")
+        System.setProperty("ftp.proxyPort", "1")
+        System.setProperty("java.net.preferIPv4Stack", "true")
+        LOGGER.info("[StartupOptimizer] Network requests blocked")
+    }
+    
+    /**
+     * Unblock all network requests by clearing system properties
+     */
+    fun unblockNetwork() {
+        isNetworkBlocked = false
+        System.clearProperty("http.proxyHost")
+        System.clearProperty("http.proxyPort")
+        System.clearProperty("https.proxyHost")
+        System.clearProperty("https.proxyPort")
+        System.clearProperty("ftp.proxyHost")
+        System.clearProperty("ftp.proxyPort")
+        LOGGER.info("[StartupOptimizer] Network requests unblocked")
     }
     
     /**

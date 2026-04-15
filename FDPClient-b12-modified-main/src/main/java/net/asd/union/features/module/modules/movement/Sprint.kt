@@ -19,6 +19,8 @@ import net.asd.union.utils.extensions.setSprintSafely
 import net.asd.union.utils.inventory.InventoryUtils.serverOpenInventory
 import net.asd.union.utils.rotation.RotationUtils.activeSettings
 import net.asd.union.utils.rotation.RotationUtils.currentRotation
+import net.minecraft.client.settings.GameSettings
+import net.minecraft.client.settings.KeyBinding
 import net.minecraft.network.play.client.C0BPacketEntityAction
 import net.minecraft.potion.Potion
 import net.minecraft.util.MovementInput
@@ -50,6 +52,16 @@ object Sprint : Module("Sprint", Category.MOVEMENT, gameDetecting = false, hideM
 
     private var isSprinting = false
 
+    private fun holdSprintKey() {
+        val bind = mc.gameSettings.keyBindSprint
+        KeyBinding.setKeyBindState(bind.keyCode, true)
+    }
+
+    private fun releaseSprintKey() {
+        val bind = mc.gameSettings.keyBindSprint
+        KeyBinding.setKeyBindState(bind.keyCode, GameSettings.isKeyDown(bind))
+    }
+
     override val tag
         get() = mode
 
@@ -57,6 +69,27 @@ object Sprint : Module("Sprint", Category.MOVEMENT, gameDetecting = false, hideM
         val player = mc.thePlayer ?: return
         val scaffoldActive = Scaffold.handleEvents()
         val scaffoldControlsSprint = scaffoldActive && Scaffold.sprint
+
+        if (mode == "Legit") {
+            if (!handleEvents() || SuperKnockback.breakSprint()) {
+                releaseSprintKey()
+                player setSprintSafely false
+                isSprinting = false
+                return
+            }
+
+            if (shouldStopSprinting(movementInput, isUsingItem, scaffoldControlsSprint)) {
+                releaseSprintKey()
+                player setSprintSafely false
+                isSprinting = false
+            } else {
+                holdSprintKey()
+                player setSprintSafely true
+                isSprinting = true
+            }
+
+            return
+        }
 
         if (SuperKnockback.breakSprint()) {
             player setSprintSafely false
@@ -177,6 +210,19 @@ object Sprint : Module("Sprint", Category.MOVEMENT, gameDetecting = false, hideM
         }
 
         return modifiedForward < threshold
+    }
+
+    override fun onEnable() {
+        isSprinting = false
+
+        if (mode == "Legit") {
+            holdSprintKey()
+        }
+    }
+
+    override fun onDisable() {
+        releaseSprintKey()
+        isSprinting = false
     }
 
     val onPacket = handler<PacketEvent> { event ->

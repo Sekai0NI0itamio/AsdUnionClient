@@ -16,8 +16,8 @@ import net.asd.union.event.*
 import net.asd.union.event.EventManager.call
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.file.FileManager
 import net.asd.union.file.FileManager.accountsConfig
+import net.asd.union.file.FileManager
 import net.asd.union.ui.client.hud.HUD.addNotification
 import net.asd.union.ui.client.hud.element.elements.Notification
 import net.asd.union.ui.client.hud.element.elements.Type
@@ -33,9 +33,14 @@ import net.minecraft.network.play.server.S45PacketTitle
 import net.minecraft.util.ChatComponentText
 import net.minecraft.util.Session
 import java.io.File
+import java.util.Locale
 
 object AutoAccount :
-    Module("AutoAccount", Category.CLIENT, subjective = true, gameDetecting = false, hideModule = false) {
+    Module("AutoAccount", Category.OTHER, subjective = true, gameDetecting = false, hideModule = false) {
+
+    private const val AUTH_WINDOW_MILLIS = 30_000L
+    private const val AUTH_SEND_DELAY_MILLIS = 1_000L
+    private const val AUTH_RECHECK_DELAY_MILLIS = 3_000L
 
     private val register by boolean("AutoRegister", true)
     private val login by boolean("AutoLogin", true)
@@ -53,11 +58,6 @@ object AutoAccount :
                 newValue.equals("reset", true) -> {
                     chat("§7[§a§lAutoAccount§7] §3Password reset to its default value.")
                     "axolotlaxolotl"
-                }
-
-                newValue.length < 4 -> {
-                    chat("§7[§a§lAutoAccount§7] §cPassword must be longer than 4 characters!")
-                    oldValue
                 }
 
                 else -> super.onChange(oldValue, newValue)
@@ -98,6 +98,10 @@ object AutoAccount :
     }
 
     private var status = Status.WAITING
+    private var lastCommand: AuthCommand? = null
+    private var authWindowEndsAt = 0L
+    private var authAttemptToken = 0L
+    private var authSessionCompleted = false
 
     // Password storage system
     private val serverPasswords = mutableMapOf<String, String>() // serverIP -> password
@@ -108,12 +112,56 @@ object AutoAccount :
         super.onInitialize()
         loadPasswords()
     }
+
+    override fun onEnable() {
+        super.onEnable()
+        if (mc.theWorld != null) {
+            resetAuthWindow()
+        } else {
+            clearAuthWindow()
+        }
+    }
     
     // Save passwords to config on module disable
     override fun onDisable() {
         super.onDisable()
+        clearAuthWindow()
         savePasswords()
     }
+
+    private fun resetAuthWindow() {
+        authWindowEndsAt = System.currentTimeMillis() + AUTH_WINDOW_MILLIS
+        status = Status.WAITING
+        lastCommand = null
+        authAttemptToken++
+        authSessionCompleted = false
+    }
+
+    private fun clearAuthWindow() {
+        authWindowEndsAt = 0L
+        status = Status.WAITING
+        lastCommand = null
+        authAttemptToken++
+        authSessionCompleted = false
+    }
+
+    private fun sleepAuthWindow() {
+        authWindowEndsAt = 0L
+        status = Status.STOPPED
+        lastCommand = null
+        authAttemptToken++
+        authSessionCompleted = false
+    }
+
+    private fun finishAuthSession() {
+        authWindowEndsAt = 0L
+        status = Status.STOPPED
+        lastCommand = null
+        authAttemptToken++
+        authSessionCompleted = true
+    }
+
+    private fun isAuthWindowOpen() = authWindowEndsAt != 0L && System.currentTimeMillis() <= authWindowEndsAt
     
     private fun loadPasswords() {
         try {
@@ -160,12 +208,8 @@ object AutoAccount :
     }
     
     private fun getStoredPassword(serverIP: String?, accountName: String): String? {
-        // First check server-specific password
-        serverIP?.let { ip ->
-            serverPasswords[ip]?.let { return it }
-        }
-        
-        // Then check account-specific password
+        // Use account-specific passwords for auth decisions so one server does not
+        // force the wrong branch for a different account on the same server.
         return accountPasswords[accountName]
     }
     
@@ -196,44 +240,109 @@ object AutoAccount :
         }
     }
 
-    private fun respond(msg: String) = when {
-        register && "/reg" in msg -> {
-            val serverIP = mc.currentServerData?.serverIP
-            val accountName = mc.session.username
-            val storedPassword = getStoredPassword(serverIP, accountName)
-            
-            addNotification(Notification("Trying to register.", "Trying to Register", Type.INFO))
-            SharedScopes.IO.launch {
-                delay(sendDelay.toLong())
-                if (storedPassword != null) {
-                    // Use stored password for login instead of register
-                    mc.thePlayer.sendChatMessage("/login $storedPassword")
-                } else {
-                    // Use configured password for registration
-                    mc.thePlayer.sendChatMessage("/register $password $password")
+    private fun scheduleAuthCommand(command: String, commandType: AuthCommand) {
+        if (status != Status.WAITING) {
+            return
+        }
+
+        status = Status.PENDING
+        lastCommand = commandType
+
+        val token = ++authAttemptToken
+
+        SharedScopes.IO.launch {
+            delay(AUTH_SEND_DELAY_MILLIS)
+
+            if (token != authAttemptToken || !state || !isAuthWindowOpen()) {
+                return@launch
+            }
+
+            Minecraft.getMinecraft().addScheduledTask {
+                if (token != authAttemptToken || !state || !isAuthWindowOpen() || status != Status.PENDING) {
+                    return@addScheduledTask
+                }
+
+                val player = mc.thePlayer ?: return@addScheduledTask
+                player.sendChatMessage(command)
+                status = Status.SENT_COMMAND
+            }
+
+            delay(AUTH_RECHECK_DELAY_MILLIS)
+
+            if (token != authAttemptToken || !state || !isAuthWindowOpen()) {
+                return@launch
+            }
+
+            Minecraft.getMinecraft().addScheduledTask {
+                if (token != authAttemptToken || !state || !isAuthWindowOpen()) {
+                    return@addScheduledTask
+                }
+
+                if (status == Status.SENT_COMMAND || status == Status.PENDING) {
+                    finishAuthSession()
                 }
             }
+        }
+    }
+
+    private fun normalizeMessage(message: String) =
+        message.lowercase(Locale.ROOT).replace(Regex("\\s+"), " ").trim()
+
+    private fun isRegisterPrompt(msg: String): Boolean {
+        return "/register" in msg ||
+            "register first" in msg ||
+            "must register" in msg ||
+            "please register" in msg ||
+            "you must register" in msg
+    }
+
+    private fun isLoginPrompt(msg: String): Boolean {
+        return "/login" in msg ||
+            "login first" in msg ||
+            "log in first" in msg ||
+            "must log in" in msg ||
+            "must login" in msg ||
+            "please login" in msg ||
+            "please log in" in msg ||
+            "you are not logged in" in msg
+    }
+
+    private fun isAuthPrompt(msg: String) = isRegisterPrompt(msg) || isLoginPrompt(msg)
+
+    private fun respond(msg: String) = when {
+        // Server asking to register - send the register command once after the delay.
+        register && isRegisterPrompt(msg) -> {
+            lastCommand = AuthCommand.REGISTER
+            addNotification(Notification("Processing registration request.", "Auth", Type.INFO))
+            scheduleAuthCommand("/register $password $password", AuthCommand.REGISTER)
             true
         }
 
-        login && "/log" in msg -> {
+        // Server asking to login - use stored password if available, otherwise fall back to configured password
+        login && isLoginPrompt(msg) -> {
             val serverIP = mc.currentServerData?.serverIP
             val accountName = mc.session.username
-            val storedPassword = getStoredPassword(serverIP, accountName)
+            val storedPassword = getStoredPassword(serverIP, accountName)?.takeIf { it.isNotBlank() }
             val passwordToUse = storedPassword ?: password
-            
-            addNotification(Notification("Trying to log in.", "Trying to log in.", Type.INFO))
-            SharedScopes.IO.launch {
-                delay(sendDelay.toLong())
-                mc.thePlayer.sendChatMessage("/login $passwordToUse")
-            }
+            lastCommand = AuthCommand.LOGIN
+
+            addNotification(Notification("Processing login request.", "Auth", Type.INFO))
+            scheduleAuthCommand("/login $passwordToUse", AuthCommand.LOGIN)
             true
         }
 
         else -> false
     }
 
-    val onPacket = handler<PacketEvent> { event ->
+    // Use always = true so events always fire regardless of game state
+    val onPacket = handler<PacketEvent>(always = true) { event ->
+        if (!isAuthWindowOpen()) {
+            if (status != Status.STOPPED) {
+                status = Status.STOPPED
+            }
+            return@handler
+        }
+
         when (val packet = event.packet) {
             is C01PacketChatMessage -> {
                 if (!recordPasswords || event.eventType != EventState.SEND) return@handler
@@ -258,21 +367,20 @@ object AutoAccount :
 
             is S02PacketChat, is S45PacketTitle -> {
                 // Don't respond to register / login prompts when failed once
-                if (!passwordValue.isSupported() || status == Status.STOPPED) return@handler
+                if (!passwordValue.isSupported()) {
+                    return@handler
+                }
 
                 val msg = when (packet) {
-                    is S02PacketChat -> packet.chatComponent?.unformattedText?.lowercase()
-                    is S45PacketTitle -> packet.message?.unformattedText?.lowercase()
+                    is S02PacketChat -> packet.chatComponent?.unformattedText?.let(::normalizeMessage)
+                    is S45PacketTitle -> packet.message?.unformattedText?.let(::normalizeMessage)
                     else -> return@handler
                 } ?: return@handler
 
-                if (status == Status.WAITING) {
-                    // Try to register / log in, return if invalid message
-                    if (!respond(msg))
-                        return@handler
-
-                    event.cancelEvent()
-                    status = Status.SENT_COMMAND
+                if (isAuthPrompt(msg) && status == Status.WAITING) {
+                    if (respond(msg)) {
+                        event.cancelEvent()
+                    }
                 } else {
                     // Check response from server
                     when {
@@ -282,8 +390,8 @@ object AutoAccount :
                             event.cancelEvent()
                         }
                         // Login failed, possibly relog
-                        "incorrect" in msg || "wrong" in msg || "spatne" in msg -> fail()
-                        "unknown" in msg || "command" in msg || "allow" in msg || "already" in msg -> {
+                        "incorrect" in msg || "wrong" in msg || "invalid password" in msg || "spatne" in msg || "does not match" in msg -> fail()
+                        "unknown command" in msg || "not a valid command" in msg || "cannot be used from here" in msg || "you are already logged in" in msg -> {
                             // Tried executing /login or /register from lobby, stop trying
                             status = Status.STOPPED
                             event.cancelEvent()
@@ -307,15 +415,20 @@ object AutoAccount :
     val onWorld = handler<WorldEvent> { event ->
         if (!passwordValue.isSupported()) return@handler
 
-        // Reset status if player wasn't in a world before
-        if (mc.theWorld == null) {
-            status = Status.WAITING
+        // Reset the auth window on a fresh join, but keep SENT_COMMAND transitions intact.
+        if (event.worldClient != null && status != Status.SENT_COMMAND && !authSessionCompleted) {
+            resetAuthWindow()
+            return@handler
+        }
+
+        if (event.worldClient == null) {
+            clearAuthWindow()
             return@handler
         }
 
         if (status == Status.SENT_COMMAND) {
             // Server redirected the player to a lobby, success
-            if (event.worldClient != null && mc.theWorld != event.worldClient) success()
+            if (mc.theWorld != event.worldClient) success()
             // Login failed, possibly relog
             else fail()
         }
@@ -333,7 +446,7 @@ object AutoAccount :
             val serverIP = mc.currentServerData?.serverIP
             
             // Store the password if we just registered successfully
-            if (register && status == Status.SENT_COMMAND) {
+            if (lastCommand == AuthCommand.REGISTER) {
                 storePassword(serverIP, accountName, password)
                 addNotification(Notification("Registered and logged in as $accountName", "Registered", Type.SUCCESS))
             } else {
@@ -341,7 +454,7 @@ object AutoAccount :
             }
             
             // Stop waiting for response
-            status = Status.STOPPED
+            finishAuthSession()
         }
     }
 
@@ -351,7 +464,7 @@ object AutoAccount :
             addNotification(Notification("Failed to log in as ${mc.session.username}", "ERROR", Type.ERROR))
 
             // Stop waiting for response
-            status = Status.STOPPED
+            finishAuthSession()
 
             // Trigger relog task
             if (relogInvalidValue.isActive()) relog()
@@ -383,6 +496,29 @@ object AutoAccount :
     }
 
     private enum class Status {
-        WAITING, SENT_COMMAND, STOPPED
+        WAITING, PENDING, SENT_COMMAND, STOPPED
+    }
+
+    private enum class AuthCommand {
+        LOGIN, REGISTER
+    }
+    
+    // Called from MixinGuiNewChat to process incoming chat messages
+    fun onChatMessage(message: String) {
+        if (!state || !passwordValue.isSupported() || status != Status.WAITING) return
+        
+        val msg = normalizeMessage(message)
+        
+        if (isAuthPrompt(msg) && respond(msg)) return
+    }
+
+    val onUpdate = handler<UpdateEvent> {
+        if (!state || !passwordValue.isSupported()) {
+            return@handler
+        }
+
+        if (status == Status.WAITING && authWindowEndsAt != 0L && System.currentTimeMillis() > authWindowEndsAt) {
+            sleepAuthWindow()
+        }
     }
 }

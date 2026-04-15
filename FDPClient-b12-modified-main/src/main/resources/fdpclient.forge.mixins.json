@@ -15,8 +15,10 @@
     "client.MixinResourcePackRepository",
     "client.MixinSplashProgress",
     "entity.MixinAbstractClientPlayer",
+    "entity.MixinEntityArrow",
     "entity.MixinEntity",
     "entity.MixinEntityLivingBase",
+    "entity.MixinEntityFishHook",
     "entity.MixinEntityPlayer",
     "entity.MixinEntityPlayerSP",
     "entity.MixinInventoryPlayer",
@@ -74,6 +76,7 @@
     "resources.MixinSkinManager",
     "tweaks.MixinAnvilChunkLoader",
     "tweaks.MixinMinecraftServer",
+    "util.MixinUtil",
     "world.MixinChunk",
     "world.MixinWorld",
     "world.MixinWorldClient"

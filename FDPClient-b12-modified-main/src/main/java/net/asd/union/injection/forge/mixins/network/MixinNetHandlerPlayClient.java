@@ -14,6 +14,8 @@ import net.asd.union.handler.payload.ClientFixes;
 import net.asd.union.handler.render.AntiSpawnLag;
 import net.asd.union.handler.render.LazyChunkCache;
 import net.asd.union.handler.render.NoTitle;
+import net.asd.union.event.EventState;
+import net.asd.union.event.PacketEvent;
 import net.asd.union.utils.client.ClientUtils;
 import net.asd.union.utils.client.PacketUtils;
 import net.asd.union.utils.rotation.Rotation;
@@ -39,6 +41,10 @@ import net.minecraft.network.play.server.*;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.WorldSettings;
 import net.minecraft.world.chunk.Chunk;
+import net.minecraft.util.BlockPos;
+import net.minecraft.block.state.IBlockState;
+import net.minecraft.scoreboard.Scoreboard;
+import net.minecraft.scoreboard.ScorePlayerTeam;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -46,6 +52,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -101,6 +108,35 @@ public abstract class MixinNetHandlerPlayClient {
         }
     }
 
+    @Inject(method = "handleTitle", at = @At("HEAD"))
+    private void fdp$dispatchTitlePacketEvent(S45PacketTitle packetIn, CallbackInfo ci) {
+        PacketEvent event = new PacketEvent(packetIn, EventState.RECEIVE);
+        EventManager.INSTANCE.call(event);
+    }
+
+    @Redirect(
+            method = {"handleTeams", "func_147247_a"},
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/scoreboard/Scoreboard;removePlayerFromTeam(Ljava/lang/String;Lnet/minecraft/scoreboard/ScorePlayerTeam;)V"
+            )
+    )
+    private void fdp$safeRemovePlayerFromTeam(Scoreboard scoreboard, String playerName, ScorePlayerTeam team) {
+        try {
+            scoreboard.removePlayerFromTeam(playerName, team);
+        } catch (IllegalStateException ignored) {
+        }
+    }
+
+    @Inject(method = "handleChat", at = @At("HEAD"), cancellable = true)
+    private void fdp$dispatchChatPacketEvent(S02PacketChat packetIn, CallbackInfo ci) {
+        PacketEvent event = new PacketEvent(packetIn, EventState.RECEIVE);
+        EventManager.INSTANCE.call(event);
+        if (event.isCancelled()) {
+            ci.cancel();
+        }
+    }
+
     @Inject(method = "handleResourcePack", at = @At("HEAD"), cancellable = true)
     private void handleResourcePack(final S48PacketResourcePackSend p_handleResourcePack_1_, final CallbackInfo callbackInfo) {
         final String url = p_handleResourcePack_1_.getURL();
@@ -129,36 +165,40 @@ public abstract class MixinNetHandlerPlayClient {
 
     @Inject(method = "handleChunkData", at = @At("HEAD"), cancellable = true)
     private void onChunkData(S21PacketChunkData packet, CallbackInfo ci) {
-        if (!LazyChunkCache.INSTANCE.getEnabled() || clientWorldController == null) {
-            return;
-        }
+        try {
+            if (!LazyChunkCache.INSTANCE.getEnabled() || clientWorldController == null) {
+                return;
+            }
 
-        int chunkX = packet.getChunkX();
-        int chunkZ = packet.getChunkZ();
-        boolean isFullChunk = packet.func_149274_i();
+            int chunkX = packet.getChunkX();
+            int chunkZ = packet.getChunkZ();
+            boolean isFullChunk = packet.func_149274_i();
 
-        if (isNearPlayerChunk(chunkX, chunkZ)) {
-            return;
-        }
+            if (isNearPlayerChunk(chunkX, chunkZ)) {
+                return;
+            }
 
-        if (isFullChunk && packet.getExtractedSize() == 0) {
+            if (isFullChunk && packet.getExtractedSize() == 0) {
+                LazyChunkCache.INSTANCE.remove(chunkX, chunkZ);
+                return;
+            }
+
+            if (!isFullChunk || !LazyChunkCache.INSTANCE.contains(chunkX, chunkZ)) {
+                return;
+            }
+
+            Chunk existingChunk = clientWorldController.getChunkFromChunkCoords(chunkX, chunkZ);
+
+            if (existingChunk != null && !existingChunk.getAreLevelsEmpty(0, 255)) {
+                LazyChunkCache.INSTANCE.recordSkip();
+                ci.cancel();
+                return;
+            }
+
             LazyChunkCache.INSTANCE.remove(chunkX, chunkZ);
-            return;
-        }
-
-        if (!isFullChunk || !LazyChunkCache.INSTANCE.contains(chunkX, chunkZ)) {
-            return;
-        }
-
-        Chunk existingChunk = clientWorldController.getChunkFromChunkCoords(chunkX, chunkZ);
-
-        if (existingChunk != null && !existingChunk.getAreLevelsEmpty(0, 255)) {
-            LazyChunkCache.INSTANCE.recordSkip();
+        } catch (Exception e) {
             ci.cancel();
-            return;
         }
-
-        LazyChunkCache.INSTANCE.remove(chunkX, chunkZ);
     }
 
     @Inject(method = "handleChunkData", at = @At("RETURN"))
@@ -180,56 +220,81 @@ public abstract class MixinNetHandlerPlayClient {
         }
     }
 
-    @Inject(method = "handleMapChunkBulk", at = @At("HEAD"), cancellable = true)
-    private void onChunkBulk(S26PacketMapChunkBulk packet, CallbackInfo ci) {
-        if (!LazyChunkCache.INSTANCE.getEnabled() || clientWorldController == null) {
-            return;
+    @Redirect(
+            method = {"handleChunkData", "func_147263_a"},
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/world/chunk/Chunk;func_177439_a(Lnet/minecraft/util/BlockPos;Lnet/minecraft/block/state/IBlockState;)Lnet/minecraft/block/state/IBlockState;"
+            )
+    )
+    private IBlockState fdp$safeSetBlockStateSrg(Chunk chunk, BlockPos pos, IBlockState state) {
+        return fdp$safeSetBlockState(chunk, pos, state);
+    }
+
+    @Redirect(
+            method = {"handleChunkData", "func_147263_a"},
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/world/chunk/Chunk;setBlockState(Lnet/minecraft/util/BlockPos;Lnet/minecraft/block/state/IBlockState;)Lnet/minecraft/block/state/IBlockState;"
+            )
+    )
+    private IBlockState fdp$safeSetBlockStateDeobf(Chunk chunk, BlockPos pos, IBlockState state) {
+        return fdp$safeSetBlockState(chunk, pos, state);
+    }
+
+    private IBlockState fdp$safeSetBlockState(Chunk chunk, BlockPos pos, IBlockState state) {
+        int y = pos.getY();
+        int localX = pos.getX() - (chunk.xPosition << 4);
+        int localZ = pos.getZ() - (chunk.zPosition << 4);
+
+        if (y < 0 || y >= 256 || localX < 0 || localX > 15 || localZ < 0 || localZ > 15) {
+            return null;
         }
 
-        int chunkCount = packet.getChunkCount();
-        boolean allCached = true;
-
-        for (int index = 0; index < chunkCount; index++) {
-            int chunkX = packet.getChunkX(index);
-            int chunkZ = packet.getChunkZ(index);
-
-            if (isNearPlayerChunk(chunkX, chunkZ)) {
-                allCached = false;
-                continue;
-            }
-
-            if (!LazyChunkCache.INSTANCE.contains(chunkX, chunkZ)) {
-                allCached = false;
-                continue;
-            }
-
-            Chunk existingChunk = clientWorldController.getChunkFromChunkCoords(chunkX, chunkZ);
-            if (existingChunk == null || existingChunk.getAreLevelsEmpty(0, 255)) {
-                allCached = false;
-                LazyChunkCache.INSTANCE.remove(chunkX, chunkZ);
-            }
-        }
-
-        if (allCached) {
-            LazyChunkCache.INSTANCE.recordSkip();
-            ci.cancel();
+        try {
+            return chunk.setBlockState(pos, state);
+        } catch (ArrayIndexOutOfBoundsException ignored) {
+            return null;
         }
     }
 
-    @Inject(method = "handleMapChunkBulk", at = @At("RETURN"))
-    private void cacheBulkChunksAfterLoad(S26PacketMapChunkBulk packet, CallbackInfo ci) {
-        if (!LazyChunkCache.INSTANCE.getEnabled() || clientWorldController == null) {
-            return;
-        }
-
-        for (int index = 0; index < packet.getChunkCount(); index++) {
-            int chunkX = packet.getChunkX(index);
-            int chunkZ = packet.getChunkZ(index);
-            Chunk chunk = clientWorldController.getChunkFromChunkCoords(chunkX, chunkZ);
-
-            if (chunk != null && !chunk.getAreLevelsEmpty(0, 255)) {
-                LazyChunkCache.INSTANCE.add(chunkX, chunkZ);
+    @Inject(method = "handleMapChunkBulk", at = @At("HEAD"), cancellable = true)
+    private void onChunkBulk(S26PacketMapChunkBulk packet, CallbackInfo ci) {
+        try {
+            if (!LazyChunkCache.INSTANCE.getEnabled() || clientWorldController == null) {
+                return;
             }
+
+            int chunkCount = packet.getChunkCount();
+            boolean allCached = true;
+
+            for (int index = 0; index < chunkCount; index++) {
+                int chunkX = packet.getChunkX(index);
+                int chunkZ = packet.getChunkZ(index);
+
+                if (isNearPlayerChunk(chunkX, chunkZ)) {
+                    allCached = false;
+                    continue;
+                }
+
+                if (!LazyChunkCache.INSTANCE.contains(chunkX, chunkZ)) {
+                    allCached = false;
+                    continue;
+                }
+
+                Chunk existingChunk = clientWorldController.getChunkFromChunkCoords(chunkX, chunkZ);
+                if (existingChunk == null || existingChunk.getAreLevelsEmpty(0, 255)) {
+                    allCached = false;
+                    LazyChunkCache.INSTANCE.remove(chunkX, chunkZ);
+                }
+            }
+
+if (allCached) {
+                LazyChunkCache.INSTANCE.recordSkip();
+                ci.cancel();
+            }
+        } catch (Exception e) {
+            ci.cancel();
         }
     }
 
@@ -293,6 +358,13 @@ public abstract class MixinNetHandlerPlayClient {
 
         // Save the server's requested rotation before it resets the rotations
         module.setSavedRotation(PlayerExtensionKt.getRotation(Minecraft.getMinecraft().thePlayer));
+    }
+
+    @Inject(method = "handleSpawnPlayer", at = @At("HEAD"))
+    private void suppressSpawnNPE(S0CPacketSpawnPlayer packetIn, CallbackInfo ci) {
+        if (clientWorldController == null) {
+            ci.cancel();
+        }
     }
 
     @Redirect(method = "handlePlayerPosLook", at = @At(value = "INVOKE", target = "Lnet/minecraft/network/NetworkManager;sendPacket(Lnet/minecraft/network/Packet;)V"))

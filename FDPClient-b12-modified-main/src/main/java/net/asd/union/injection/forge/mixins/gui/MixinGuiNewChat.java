@@ -9,7 +9,6 @@ import net.asd.union.features.module.modules.client.ChatControl;
 import net.asd.union.ui.font.Fonts;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.*;
-import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.IChatComponent;
 import net.minecraft.util.MathHelper;
@@ -87,7 +86,7 @@ public abstract class MixinGuiNewChat {
 
         if (chatControl.shouldModifyChatFont()) { 
             callbackInfo.cancel();
-            if (mc.gameSettings.chatVisibility != EntityPlayer.EnumChatVisibility.HIDDEN) {
+            if (mc.gameSettings.chatVisibility != null) {
                 int lineCount = getLineCount();
                 boolean isChatOpen = getChatOpen();
                 int renderedLines = 0;

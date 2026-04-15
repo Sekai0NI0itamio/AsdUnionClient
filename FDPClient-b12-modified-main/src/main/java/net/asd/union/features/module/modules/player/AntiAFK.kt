@@ -15,13 +15,20 @@ import net.asd.union.event.handler
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
 import net.asd.union.utils.extensions.fixedSensitivityYaw
+import net.asd.union.utils.extensions.eyes
 import net.asd.union.utils.extensions.reset
 import net.asd.union.utils.extensions.sendUseItem
 import net.asd.union.utils.extensions.setSprintSafely
 import net.asd.union.utils.extensions.tryJump
+import net.asd.union.utils.rotation.RotationSettings
+import net.asd.union.utils.rotation.RotationUtils.setTargetRotation
+import net.asd.union.utils.rotation.RotationUtils.toRotation
 import net.asd.union.utils.kotlin.RandomUtils.nextBoolean
 import net.asd.union.utils.kotlin.RandomUtils.nextInt
 import net.asd.union.utils.movement.MovementUtils.updateControls
+import net.minecraft.client.entity.EntityPlayerSP
+import net.minecraft.util.Vec3
+import kotlin.math.sqrt
 
 object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideModule = false) {
 
@@ -29,6 +36,17 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
     private val yawStep by float("YawStep", 6.5f, 0.5f..30f, "deg")
     private val jump by boolean("Jump", true)
     private val sprint by boolean("Sprint", true)
+
+    private val centerPositionValue = boolean("Center Position", false)
+    private val centerPosition by centerPositionValue
+    private val blockRadius by float("Block Radius", 5f, 1f..20f, "blocks") { centerPositionValue.isActive() }
+
+    private val returnRotationOptions = RotationSettings(this).withoutKeepRotation().apply {
+        minHorizontalAngleChangeValue.set(6f)
+        minVerticalAngleChangeValue.set(6f)
+        maxHorizontalAngleChangeValue.set(12f)
+        maxVerticalAngleChangeValue.set(12f)
+    }
 
     private val switchItemsValue = boolean("SwitchItems", true)
     private val switchItems by switchItemsValue
@@ -50,13 +68,39 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
     private var nextSwitchAt = 0L
     private var pendingClicks = 0
     private var nextClickAt = 0L
+    private var centerPoint: Vec3? = null
+    private var returningToCenter = false
 
     val onUpdate = handler<UpdateEvent> {
         val player = mc.thePlayer ?: return@handler
 
         if (mc.theWorld == null || player.isDead) {
+            returningToCenter = false
+            centerPoint = null
             resetInputs()
             return@handler
+        }
+
+        if (!centerPosition) {
+            centerPoint = null
+            returningToCenter = false
+        } else if (centerPoint == null) {
+            captureCenter(player)
+        }
+
+        if (centerPosition && centerPoint != null) {
+            val distanceToCenter = distanceToCenter(player)
+
+            if (returningToCenter || distanceToCenter > blockRadius) {
+                returningToCenter = true
+
+                if (distanceToCenter <= returnReleaseDistance()) {
+                    returningToCenter = false
+                } else {
+                    applyReturnMovement(player)
+                    return@handler
+                }
+            }
         }
 
         val now = System.currentTimeMillis()
@@ -101,6 +145,14 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
             return@handler
         }
 
+        if (returningToCenter) {
+            event.originalInput.moveForward = 1f
+            event.originalInput.moveStrafe = 0f
+            event.originalInput.jump = false
+            event.originalInput.sneak = false
+            return@handler
+        }
+
         if (isPaused) {
             event.originalInput.reset()
             return@handler
@@ -127,6 +179,14 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         nextClickAt = 0L
         nextPauseAt = if (pause) now + randomDelay(pauseEvery) else 0L
         nextSwitchAt = if (switchItems) now + randomDelay(switchDelay) else 0L
+
+        returningToCenter = false
+
+        if (centerPosition) {
+            mc.thePlayer?.let { captureCenter(it) }
+        } else {
+            centerPoint = null
+        }
     }
 
     override fun onDisable() {
@@ -136,6 +196,8 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         nextClickAt = 0L
         nextPauseAt = 0L
         nextSwitchAt = 0L
+        returningToCenter = false
+        centerPoint = null
         resetInputs()
     }
 
@@ -197,6 +259,24 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         player.fixedSensitivityYaw += if (strafeRight) yawStep else -yawStep
     }
 
+    private fun applyReturnMovement(player: EntityPlayerSP) {
+        val center = centerPoint ?: return
+
+        setTargetRotation(
+            toRotation(Vec3(center.xCoord, player.eyes.yCoord, center.zCoord), false, player),
+            options = returnRotationOptions,
+        )
+
+        mc.gameSettings.keyBindForward.pressed = true
+        mc.gameSettings.keyBindBack.pressed = false
+        mc.gameSettings.keyBindLeft.pressed = false
+        mc.gameSettings.keyBindRight.pressed = false
+        mc.gameSettings.keyBindJump.pressed = false
+        mc.gameSettings.keyBindSprint.pressed = false
+
+        player setSprintSafely false
+    }
+
     private fun applyStoppedState(player: net.minecraft.client.entity.EntityPlayerSP) {
         mc.gameSettings.keyBindForward.pressed = false
         mc.gameSettings.keyBindBack.pressed = false
@@ -207,6 +287,20 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
 
         player setSprintSafely false
     }
+
+    private fun captureCenter(player: EntityPlayerSP) {
+        centerPoint = Vec3(player.posX, player.posY, player.posZ)
+    }
+
+    private fun distanceToCenter(player: EntityPlayerSP): Double {
+        val center = centerPoint ?: return 0.0
+        val deltaX = player.posX - center.xCoord
+        val deltaZ = player.posZ - center.zCoord
+
+        return sqrt(deltaX * deltaX + deltaZ * deltaZ)
+    }
+
+    private fun returnReleaseDistance() = (blockRadius * 0.8f).coerceAtLeast(0.5f).toDouble()
 
     private fun switchHotbarSlot() {
         val player = mc.thePlayer ?: return

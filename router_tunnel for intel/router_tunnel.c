@@ -47,7 +47,6 @@
 
 #define DEFAULT_PORT        25560
 #define DEFAULT_HTTP_PROXY_PORT 25561
-#define DEFAULT_PHONE_PORT  45454
 #define BUFFER_SIZE         65536
 #define CONNECT_TIMEOUT_MS  5000
 #define RELAY_TIMEOUT_MS    300000   /* 5 min idle */
@@ -55,8 +54,6 @@
 #define HTTP_HEADER_MAX     16384
 #define SOCKET_BUFFER_BYTES (1 << 20)
 #define MAX_WIFI_NETWORKS   32
-#define MAX_DEVICE_RESULTS  64
-#define DEVICE_SCAN_TIMEOUT_MS 150
 
 /* ---------- globals ---------- */
 
@@ -65,11 +62,6 @@ static char   g_interface[64]           = {0};
 static int    g_ifindex                 = 0;
 static char   g_local_ip[INET_ADDRSTRLEN] = {0};
 static int    g_always_route_setup      = 0;
-static char   g_phone_host[256]         = {0};
-static int    g_phone_port              = DEFAULT_PHONE_PORT;
-static char   g_phone_password[256]     = {0};
-static char   g_phone_password_file[512] = {0};
-static int    g_phone_enabled           = 0;
 
 /* ---------- helpers ---------- */
 
@@ -423,161 +415,6 @@ static void send_json(int fd, const char *json) {
     write_full(fd, json, len);
 }
 
-static void trim_whitespace(char *s) {
-    size_t len;
-    if (!s) return;
-    len = strlen(s);
-    while (len > 0 && isspace((unsigned char)s[len - 1])) s[--len] = '\0';
-    size_t start = 0;
-    while (s[start] && isspace((unsigned char)s[start])) start++;
-    if (start > 0) memmove(s, s + start, len - start + 1);
-}
-
-static int read_first_line_file(const char *path, char *out, size_t out_sz) {
-    if (!path || !path[0] || out_sz == 0) return 0;
-    FILE *fp = fopen(path, "r");
-    if (!fp) return 0;
-    if (!fgets(out, (int)out_sz, fp)) {
-        fclose(fp);
-        out[0] = '\0';
-        return 0;
-    }
-    fclose(fp);
-    trim_whitespace(out);
-    return out[0] != '\0';
-}
-
-static int load_phone_password(void) {
-    if (g_phone_password[0]) return 1;
-    if (g_phone_password_file[0]) {
-        return read_first_line_file(g_phone_password_file, g_phone_password, sizeof(g_phone_password));
-    }
-    return 0;
-}
-
-static int read_line_timeout(int fd, char *out, size_t out_sz, int timeout_ms) {
-    if (out_sz == 0) return -1;
-    out[0] = '\0';
-
-    struct timeval tv;
-    tv.tv_sec = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    size_t used = 0;
-    while (used + 1 < out_sz) {
-        char c = 0;
-        ssize_t n = read(fd, &c, 1);
-        if (n <= 0) break;
-        if (c == '\n') break;
-        if (c == '\r') continue;
-        out[used++] = c;
-    }
-    out[used] = '\0';
-    return used > 0 ? 0 : -1;
-}
-
-static int phone_auth_and_connect(int fd, const char *host, unsigned short port,
-                                  char *out_err, size_t out_err_sz) {
-    char line[512];
-
-    if (!load_phone_password()) {
-        snprintf(out_err, out_err_sz, "Missing phone password");
-        return -1;
-    }
-
-    int n = snprintf(line, sizeof(line), "AUTH %s\n", g_phone_password);
-    if (n <= 0 || n >= (int)sizeof(line)) return -1;
-    if (write_full(fd, line, (size_t)n) != n) return -1;
-
-    if (read_line_timeout(fd, line, sizeof(line), 1500) != 0) {
-        snprintf(out_err, out_err_sz, "No auth response");
-        return -1;
-    }
-
-    if (strncmp(line, "OK ", 3) != 0) {
-        snprintf(out_err, out_err_sz, "Auth failed");
-        return -1;
-    }
-
-    const char *token = line + 3;
-    if (!token[0]) {
-        snprintf(out_err, out_err_sz, "Missing token");
-        return -1;
-    }
-
-    n = snprintf(line, sizeof(line), "CONNECT %s %u %s\n", host, port, token);
-    if (n <= 0 || n >= (int)sizeof(line)) return -1;
-    if (write_full(fd, line, (size_t)n) != n) return -1;
-
-    if (read_line_timeout(fd, line, sizeof(line), 4000) != 0) {
-        snprintf(out_err, out_err_sz, "No connect response");
-        return -1;
-    }
-
-    if (strcmp(line, "CONNECT OK") != 0) {
-        snprintf(out_err, out_err_sz, "%s", line);
-        return -1;
-    }
-
-    return 0;
-}
-
-static int connect_via_phone(const char *host, unsigned short port,
-                             char *rip, size_t rip_len) {
-    if (!g_phone_enabled || !g_phone_host[0]) return -1;
-
-    struct addrinfo hints = {0}, *result, *ai;
-    hints.ai_family   = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-
-    char port_str[16];
-    snprintf(port_str, sizeof(port_str), "%d", g_phone_port);
-
-    int err = getaddrinfo(g_phone_host, port_str, &hints, &result);
-    if (err != 0) {
-        ERR("Phone DNS failed for %s: %s", g_phone_host, gai_strerror(err));
-        return -1;
-    }
-
-    int last_errno = 0;
-    for (ai = result; ai; ai = ai->ai_next) {
-        int fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (fd < 0) {
-            last_errno = errno;
-            continue;
-        }
-
-        tune_socket(fd);
-
-        if (connect_with_timeout(fd, ai->ai_addr, ai->ai_addrlen, CONNECT_TIMEOUT_MS) != 0) {
-            last_errno = errno;
-            close(fd);
-            continue;
-        }
-
-        char err_msg[256];
-        if (phone_auth_and_connect(fd, host, port, err_msg, sizeof(err_msg)) != 0) {
-            ERR("Phone proxy error: %s", err_msg);
-            close(fd);
-            last_errno = ECONNABORTED;
-            continue;
-        }
-
-        struct timeval tv = {0};
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-        strncpy(rip, g_phone_host, rip_len - 1);
-        rip[rip_len - 1] = '\0';
-        freeaddrinfo(result);
-        return fd;
-    }
-
-    freeaddrinfo(result);
-    if (last_errno) errno = last_errno;
-    ERR("Phone connect failed: %s", strerror(errno));
-    return -1;
-}
 
 static void shell_quote_single(const char *in, char *out, size_t out_sz) {
     size_t o = 0;
@@ -1259,11 +1096,6 @@ static int parse_handshake(const unsigned char *data, int data_len,
 static int connect_outbound(const char *host, unsigned short port,
                             char *rip, size_t rip_len)
 {
-    if (g_phone_enabled && g_phone_host[0]) {
-        LOG("Connecting via phone proxy %s:%d", g_phone_host, g_phone_port);
-        return connect_via_phone(host, port, rip, rip_len);
-    }
-
     struct addrinfo hints = {0}, *result, *ai;
     hints.ai_family   = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -1330,105 +1162,6 @@ retry_connect:
     return -1;
 }
 
-static int probe_phone_device(const char *ip, int port, char *out_label, size_t out_sz) {
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((unsigned short)port);
-    if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) return 0;
-
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return 0;
-
-    if (connect_with_timeout(fd, (struct sockaddr *)&addr, sizeof(addr), DEVICE_SCAN_TIMEOUT_MS) != 0) {
-        close(fd);
-        return 0;
-    }
-
-    const char *ping = "PING\n";
-    if (write_full(fd, ping, strlen(ping)) < 0) {
-        close(fd);
-        return 0;
-    }
-
-    char line[256];
-    if (read_line_timeout(fd, line, sizeof(line), 300) != 0) {
-        close(fd);
-        return 0;
-    }
-
-    close(fd);
-
-    if (strncmp(line, "PONG ", 5) != 0) return 0;
-
-    snprintf(out_label, out_sz, "%s|%s|%d", ip, line + 5, port);
-    trim_whitespace(out_label);
-    return 1;
-}
-
-static int scan_phone_devices(char results[][128], int max_results, int *out_count,
-                              char *out_msg, size_t out_msg_sz) {
-    *out_count = 0;
-    out_msg[0] = '\0';
-
-    if (!g_local_ip[0]) {
-        snprintf(out_msg, out_msg_sz, "No local IP");
-        return 0;
-    }
-
-    struct in_addr addr;
-    if (inet_pton(AF_INET, g_local_ip, &addr) != 1) {
-        snprintf(out_msg, out_msg_sz, "Bad local IP");
-        return 0;
-    }
-
-    unsigned int ip = ntohl(addr.s_addr);
-    unsigned int base = ip & 0xFFFFFF00u;
-    unsigned int self = ip & 0xFFu;
-
-    for (unsigned int i = 1; i <= 254 && *out_count < max_results; i++) {
-        if (i == self) continue;
-        unsigned int target = base | i;
-        struct in_addr taddr;
-        taddr.s_addr = htonl(target);
-
-        char ipbuf[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &taddr, ipbuf, sizeof(ipbuf));
-
-        char label[128];
-        if (probe_phone_device(ipbuf, g_phone_port, label, sizeof(label))) {
-            strncpy(results[*out_count], label, 127);
-            results[*out_count][127] = '\0';
-            (*out_count)++;
-        }
-    }
-
-    if (*out_count == 0) {
-        snprintf(out_msg, out_msg_sz, "No devices found");
-        return 0;
-    }
-
-        snprintf(out_msg, out_msg_sz, "Found %d device%s", *out_count, *out_count == 1 ? "" : "s");
-    return 1;
-}
-
-static void set_phone_target(const char *host, int port, const char *password) {
-    if (host && host[0]) {
-        strncpy(g_phone_host, host, sizeof(g_phone_host) - 1);
-        g_phone_host[sizeof(g_phone_host) - 1] = '\0';
-    }
-    if (port > 0 && port <= 65535) g_phone_port = port;
-    if (password && password[0]) {
-        strncpy(g_phone_password, password, sizeof(g_phone_password) - 1);
-        g_phone_password[sizeof(g_phone_password) - 1] = '\0';
-    }
-    g_phone_enabled = 1;
-}
-
-static void clear_phone_target(void) {
-    g_phone_enabled = 0;
-    g_phone_host[0] = '\0';
-    g_phone_password[0] = '\0';
-}
 
 static void relay_bidirectional(int client_fd, int remote_fd,
                                 const char *tag,
@@ -1517,112 +1250,6 @@ static void handle_control_client(int client_fd) {
         return;
     }
 
-    /* --- Wi-Fi list: 0x03 --- */
-    if (cmd == 0x03) {
-        char devices[MAX_DEVICE_RESULTS][128];
-        int count = 0;
-        char msg[256];
-        int ok = scan_phone_devices(devices, MAX_DEVICE_RESULTS, &count, msg, sizeof(msg));
-
-        char esc_msg[512];
-        json_escape(msg, esc_msg, sizeof(esc_msg));
-
-        char resp[32768];
-        size_t pos = 0;
-        int n = snprintf(resp + pos, sizeof(resp) - pos,
-                 "{\"status\":\"device_scan\",\"ok\":%s,\"count\":%d,\"message\":\"%s\",\"networks\":[",
-                 ok ? "true" : "false", count, esc_msg);
-        if (n < 0) n = 0;
-        pos += (size_t)n;
-
-        for (int i = 0; i < count && pos + 8 < sizeof(resp); i++) {
-            char esc_ssid[256];
-            json_escape(devices[i], esc_ssid, sizeof(esc_ssid));
-            n = snprintf(resp + pos, sizeof(resp) - pos,
-                         "\"%s\"%s",
-                         esc_ssid, (i + 1 < count) ? "," : "");
-            if (n < 0) n = 0;
-            pos += (size_t)n;
-        }
-
-        if (pos + 3 < sizeof(resp)) {
-            snprintf(resp + pos, sizeof(resp) - pos, "]}");
-        } else {
-            resp[sizeof(resp) - 2] = '}';
-            resp[sizeof(resp) - 1] = '\0';
-        }
-
-        send_json(client_fd, resp);
-        close(client_fd);
-        return;
-    }
-
-    /* --- phone tunnel connect: 0x04 --- */
-    if (cmd == 0x04) {
-        unsigned char host_len = 0;
-        unsigned char pass_len = 0;
-        unsigned short port = DEFAULT_PHONE_PORT;
-
-        if (read_full(client_fd, &host_len, 1) != 1 || host_len == 0 || host_len > 250) {
-            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Missing host\"}");
-            close(client_fd);
-            return;
-        }
-
-        char host[256];
-        if (read_full(client_fd, host, host_len) != host_len) {
-            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Short host\"}");
-            close(client_fd);
-            return;
-        }
-        host[host_len] = '\0';
-
-        unsigned char port_hi = 0;
-        unsigned char port_lo = 0;
-        if (read_full(client_fd, &port_hi, 1) != 1 || read_full(client_fd, &port_lo, 1) != 1) {
-            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Missing port\"}");
-            close(client_fd);
-            return;
-        }
-        port = (unsigned short)((port_hi << 8) | port_lo);
-
-        if (read_full(client_fd, &pass_len, 1) != 1 || pass_len == 0 || pass_len > 250) {
-            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Missing password\"}");
-            close(client_fd);
-            return;
-        }
-
-        char password[256];
-        if (read_full(client_fd, password, pass_len) != pass_len) {
-            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Short password\"}");
-            close(client_fd);
-            return;
-        }
-        password[pass_len] = '\0';
-
-        set_phone_target(host, port, password);
-
-        char rip[INET_ADDRSTRLEN] = {0};
-        int fd = connect_via_phone("1.1.1.1", 443, rip, sizeof(rip));
-        if (fd >= 0) {
-            close(fd);
-            send_json(client_fd, "{\"status\":\"phone\",\"ok\":true,\"message\":\"Connected\"}");
-        } else {
-            clear_phone_target();
-            send_json(client_fd, "{\"status\":\"phone\",\"ok\":false,\"message\":\"Connect failed\"}");
-        }
-        close(client_fd);
-        return;
-    }
-
-    /* --- phone tunnel disconnect: 0x05 --- */
-    if (cmd == 0x05) {
-        clear_phone_target();
-        send_json(client_fd, "{\"status\":\"phone\",\"ok\":true,\"message\":\"Disconnected\"}");
-        close(client_fd);
-        return;
-    }
-
     send_json(client_fd, "{\"status\":\"error\",\"message\":\"Unknown command\"}");
     close(client_fd);
 }
@@ -1670,58 +1297,6 @@ static void handle_client(int client_fd) {
         write(client_fd, &blen, 1);
         write(client_fd, resp, rlen);
         close(client_fd);
-        return;
-    }
-
-    /* --- Wi-Fi list: first byte == 0x03 --- */
-    if (first == 0x03) {
-        char devices[MAX_DEVICE_RESULTS][128];
-        int count = 0;
-        char msg[256];
-        int ok = scan_phone_devices(devices, MAX_DEVICE_RESULTS, &count, msg, sizeof(msg));
-
-        char esc_msg[512];
-        json_escape(msg, esc_msg, sizeof(esc_msg));
-
-        char resp[32768];
-        size_t pos = 0;
-        int n = snprintf(resp + pos, sizeof(resp) - pos,
-                 "{\"status\":\"device_scan\",\"ok\":%s,\"count\":%d,\"message\":\"%s\",\"networks\":[",
-                 ok ? "true" : "false", count, esc_msg);
-        if (n < 0) n = 0;
-        pos += (size_t)n;
-
-        for (int i = 0; i < count && pos + 8 < sizeof(resp); i++) {
-            char esc_ssid[256];
-            json_escape(devices[i], esc_ssid, sizeof(esc_ssid));
-            n = snprintf(resp + pos, sizeof(resp) - pos,
-                         "\"%s\"%s",
-                         esc_ssid, (i + 1 < count) ? "," : "");
-            if (n < 0) n = 0;
-            pos += (size_t)n;
-        }
-
-        if (pos + 3 < sizeof(resp)) {
-            snprintf(resp + pos, sizeof(resp) - pos, "]}");
-        } else {
-            resp[sizeof(resp) - 2] = '}';
-            resp[sizeof(resp) - 1] = '\0';
-        }
-
-        send_json(client_fd, resp);
-        close(client_fd);
-        return;
-    }
-
-    /* --- phone tunnel connect: first byte == 0x04 --- */
-    if (first == 0x04) {
-        handle_control_client(client_fd);
-        return;
-    }
-
-    /* --- phone tunnel disconnect: first byte == 0x05 --- */
-    if (first == 0x05) {
-        handle_control_client(client_fd);
         return;
     }
 
@@ -2040,14 +1615,10 @@ static void print_usage(const char *prog) {
         "  --http-proxy PORT   HTTP proxy port (default %d)\n"
         "  --no-http-proxy     Disable HTTP proxy listener\n"
         "  --interface IFACE   Network interface (default auto-detect)\n"
-    "  --phone-host HOST   Use Android phone tunnel host (enables phone proxy)\n"
-    "  --phone-port PORT   Android phone tunnel port (default %d)\n"
-    "  --phone-password-file PATH   Password file for phone auth\n"
-    "  --phone-password PASSWORD    Password for phone auth (not recommended)\n"
         "  --always-route      Always install scoped default route at startup\n"
         "  --skip-test         Skip initial connectivity test\n"
         "  --help              Show this help\n",
-    prog, DEFAULT_PORT, DEFAULT_HTTP_PROXY_PORT, DEFAULT_PHONE_PORT);
+    prog, DEFAULT_PORT, DEFAULT_HTTP_PROXY_PORT);
 }
 
 int main(int argc, char *argv[]) {
@@ -2065,14 +1636,6 @@ int main(int argc, char *argv[]) {
             http_proxy_port = 0;
         else if (strcmp(argv[i], "--interface") == 0 && i + 1 < argc)
             man_iface = argv[++i];
-        else if (strcmp(argv[i], "--phone-host") == 0 && i + 1 < argc)
-            strncpy(g_phone_host, argv[++i], sizeof(g_phone_host) - 1);
-        else if (strcmp(argv[i], "--phone-port") == 0 && i + 1 < argc)
-            g_phone_port = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--phone-password-file") == 0 && i + 1 < argc)
-            strncpy(g_phone_password_file, argv[++i], sizeof(g_phone_password_file) - 1);
-        else if (strcmp(argv[i], "--phone-password") == 0 && i + 1 < argc)
-            strncpy(g_phone_password, argv[++i], sizeof(g_phone_password) - 1);
         else if (strcmp(argv[i], "--always-route") == 0)
             g_always_route_setup = 1;
         else if (strcmp(argv[i], "--skip-test") == 0)
@@ -2146,8 +1709,6 @@ int main(int argc, char *argv[]) {
     LOG("  Listening on 127.0.0.1:%d", listen_port);
     if (http_fd >= 0)
         LOG("  HTTP proxy on 127.0.0.1:%d", http_proxy_port);
-    if (g_phone_host[0])
-        LOG("  Phone proxy: %s:%d", g_phone_host, g_phone_port);
     LOG("  Interface: %s (%s)", g_interface, g_local_ip);
     LOG("  Route setup: %s", g_always_route_setup ? "always-on" : "on-demand fallback");
     LOG("  Traffic will bypass VPN via IP_BOUND_IF");
@@ -2178,7 +1739,7 @@ int main(int argc, char *argv[]) {
             if (!is_http) {
                 unsigned char first = 0;
                 ssize_t n = recv(cfd, &first, 1, MSG_PEEK | MSG_DONTWAIT);
-                if (n == 1 && (first == 0x00 || first == 0x01 || first == 0x03 || first == 0x04 || first == 0x05)) {
+                if (n == 1 && (first == 0x00 || first == 0x01)) {
                     handle_control_client(cfd);
                     continue;
                 }

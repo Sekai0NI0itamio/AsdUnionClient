@@ -14,7 +14,6 @@ import java.awt.Color
 class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
     private lateinit var toggleButton: GuiButton
     private lateinit var refreshButton: GuiButton
-    private lateinit var wifiNetworksButton: GuiButton
     private var statusTopY = 0f
 
     override fun initGui() {
@@ -29,10 +28,9 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
             "ConnectToRouter (${if (ConnectToRouter.enabled) "On" else "Off"})",
         )
         refreshButton = +GuiButton(2, centerX, startY + buttonSpacing, "Refresh Status")
-        wifiNetworksButton = +GuiButton(5, centerX, startY + buttonSpacing * 2, "Router Devices")
-        +GuiButton(0, centerX, startY + buttonSpacing * 3, "Back")
+        +GuiButton(0, centerX, startY + buttonSpacing * 2, "Back")
 
-        statusTopY = startY + buttonSpacing * 4f + 10f
+        statusTopY = startY + buttonSpacing * 3f + 10f
     }
 
     override fun actionPerformed(button: GuiButton) {
@@ -47,9 +45,6 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
                 ConnectToRouter.sendRefreshPacket()
                 ConnectToRouter.refreshStatus()
             }
-            5 -> {
-                mc.displayGuiScreen(GuiRouterWifiNetworks(this))
-            }
         }
     }
 
@@ -58,7 +53,6 @@ class GuiConnectToRouter(private val prevGui: GuiScreen) : AbstractScreen() {
 
         Fonts.fontBold180.drawCenteredString("Connect to Router", width / 2f, height / 8f + 5f, 4673984, true)
 
-        wifiNetworksButton.enabled = !ConnectToRouter.wifiListInProgress
 
         val statusLine = ConnectToRouter.statusLine
         val statusColor = ConnectToRouter.statusColor

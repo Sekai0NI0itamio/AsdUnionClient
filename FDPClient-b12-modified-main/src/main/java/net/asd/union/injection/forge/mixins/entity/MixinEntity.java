@@ -6,6 +6,8 @@
 package net.asd.union.injection.forge.mixins.entity;
 
 import net.asd.union.event.RotationSetEvent;
+import net.asd.union.features.module.modules.combat.ProjectileVelocity;
+import net.asd.union.features.module.modules.combat.RodVelocity;
 import net.asd.union.features.module.modules.visual.FreeCam;
 import net.asd.union.injection.implementations.IMixinEntity;
 import net.asd.union.event.EventManager;
@@ -228,6 +230,45 @@ public abstract class MixinEntity implements IMixinEntity {
 
     public int getFire() {
         return fire;
+    }
+
+    @Inject(method = "addVelocity", at = @At("HEAD"), cancellable = true)
+    private void fdp$handleAddVelocity(double x, double y, double z, CallbackInfo ci) {
+        fdp$handleIncomingVelocity("addVelocity", x, y, z, ci);
+    }
+
+    @Inject(method = "setVelocity", at = @At("HEAD"), cancellable = true)
+    private void fdp$handleSetVelocity(double x, double y, double z, CallbackInfo ci) {
+        fdp$handleIncomingVelocity("setVelocity", x, y, z, ci);
+    }
+
+    private void fdp$handleIncomingVelocity(String stage, double x, double y, double z, CallbackInfo ci) {
+        if ((Object) this != mc.thePlayer) {
+            return;
+        }
+
+        boolean projectileThreat = ProjectileVelocity.INSTANCE.shouldBlockIncomingVelocity(stage, x, y, z);
+        boolean rodThreat = RodVelocity.INSTANCE.shouldBlockIncomingVelocity(stage, x, y, z);
+        boolean projectileArmed = ProjectileVelocity.INSTANCE.isKnockbackBlockArmed();
+        boolean rodArmed = RodVelocity.INSTANCE.isKnockbackBlockArmed();
+
+        if (!projectileThreat && !rodThreat && !projectileArmed && !rodArmed) {
+            return;
+        }
+
+        boolean cancelled = false;
+
+        if (projectileThreat || ProjectileVelocity.INSTANCE.consumeKnockbackBlock()) {
+            cancelled = true;
+        }
+
+        if (rodThreat || RodVelocity.INSTANCE.consumeKnockbackBlock()) {
+            cancelled = true;
+        }
+
+        if (cancelled) {
+            ci.cancel();
+        }
     }
 
     @Inject(method = "getCollisionBorderSize", at = @At("HEAD"), cancellable = true)

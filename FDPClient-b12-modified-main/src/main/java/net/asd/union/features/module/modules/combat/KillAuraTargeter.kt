@@ -47,11 +47,17 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
 
     private val renderEspValue by boolean("RenderESP", true)
     private val renderStyleValue by choices("RenderStyle", arrayOf("Outline", "TracerBox"), "TracerBox") { renderEspValue }
+    private val showHitbox by boolean("Show Hitbox", false)
     private val hitThroughEntitiesValue by boolean("HitThroughEntities", true)
     private val respectFriendsValue by boolean("RespectFriends", true)
     private val setTargetMode by choices("SetTargetToView", arrayOf("Once", "Always"), "Once")
     private val updateIntervalTicks by int("UpdateIntervalTicks", 2, 1..20) { setTargetMode == "Always" }
-    private val maxFOV by float("MaxFOV", 90f, 10f..180f)
+    private val targetSelectionMode by choices(
+        "TargetSelectionMode",
+        arrayOf("Touching front most hitbox", "Closest Direction based on FOV"),
+        "Touching front most hitbox"
+    )
+    private val maxFOV by float("MaxFOV", 90f, 10f..180f) { targetSelectionMode == "Closest Direction based on FOV" }
     private val throughWalls by boolean("ThroughWalls", true)
     private val maxRange by float("MaxRange", 10f, 3f..20f)
     private val hitboxMultiplier by float("HitboxMultiplier", 1.1f, 1f..20f)
@@ -126,12 +132,13 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
     }
 
     val onRender3D = handler<Render3DEvent>(priority = -10) { event ->
-        if (!state || !renderEspValue) return@handler
+        if (!state || (!renderEspValue && !showHitbox)) return@handler
 
         val entity = targetEntity ?: return@handler
         if (!entity.isEntityAlive) return@handler
 
-        val renderBox = entity.entityBoundingBox
+        val selectionBox = expandHitbox(entity.hitBox)
+        val renderBox = if (showHitbox) selectionBox else entity.hitBox
 
         val partial = event.partialTicks.toDouble()
         val interpX = entity.lastTickPosX + (entity.posX - entity.lastTickPosX) * partial
@@ -198,80 +205,56 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
             eyes.zCoord + lookVec.zCoord * range
         )
 
-        var bestHitEntity: EntityLivingBase? = null
-        var bestHitCos = -2.0
-        var bestHitCenterDistSq = Double.MAX_VALUE
-
-        var bestFallbackEntity: EntityLivingBase? = null
-        var bestFallbackCos = -2.0
-        var bestFallbackDistSq = Double.MAX_VALUE
+        var bestEntity: EntityLivingBase? = null
+        var bestDistance = Double.MAX_VALUE
+        var bestCos = -2.0
 
         for (raw in world.loadedEntityList) {
             val entity = raw as? EntityLivingBase ?: continue
             if (!isEntityCandidate(player, entity)) continue
 
-            val expandedBox = expandHitbox(entity.hitBox)
-            val distSq = distanceSqToAabb(eyes, expandedBox)
-            if (distSq > maxRangeSq) continue
+            when (targetSelectionMode) {
+                "Touching front most hitbox" -> {
+                    val expandedBox = expandHitbox(entity.hitBox)
+                    val hitInfo = getRayHitInfo(eyes, rayEnd, expandedBox) ?: continue
 
-            val center = entity.hitBox.center
-            val centerDirX = center.xCoord - eyes.xCoord
-            val centerDirY = center.yCoord - eyes.yCoord
-            val centerDirZ = center.zCoord - eyes.zCoord
-            val centerDistSq = centerDirX * centerDirX + centerDirY * centerDirY + centerDirZ * centerDirZ
-            val centerCos = if (centerDistSq < 1.0E-8) {
-                1.0
-            } else {
-                (lookVec.xCoord * centerDirX + lookVec.yCoord * centerDirY + lookVec.zCoord * centerDirZ) / sqrt(centerDistSq)
-            }
-
-            val hitInfo = getRayHitInfo(eyes, rayEnd, expandedBox)
-            if (hitInfo != null) {
-                if ((throughWalls || hasLineOfSight(eyes, hitInfo.hitVec)) &&
-                    isBetterHit(centerCos, centerDistSq, bestHitCos, bestHitCenterDistSq)
-                ) {
-                    bestHitEntity = entity
-                    bestHitCos = centerCos
-                    bestHitCenterDistSq = centerDistSq
-                }
-            } else {
-                val nearest = nearestPointOnAabb(eyes, expandedBox)
-                val dirX = nearest.xCoord - eyes.xCoord
-                val dirY = nearest.yCoord - eyes.yCoord
-                val dirZ = nearest.zCoord - eyes.zCoord
-                val dirLenSq = dirX * dirX + dirY * dirY + dirZ * dirZ
-
-                if (dirLenSq < 1.0E-8) {
-                    if ((throughWalls || hasLineOfSight(eyes, nearest)) &&
-                        isBetterFallback(1.0, distSq, bestFallbackCos, bestFallbackDistSq)
-                    ) {
-                        bestFallbackEntity = entity
-                        bestFallbackCos = 1.0
-                        bestFallbackDistSq = distSq
+                    if (!throughWalls && !hasLineOfSight(eyes, hitInfo.hitVec)) {
+                        continue
                     }
-                } else {
-                    val dot = lookVec.xCoord * dirX + lookVec.yCoord * dirY + lookVec.zCoord * dirZ
-                    if (dot > 0.0) {
-                        val cosAngle = dot / sqrt(dirLenSq)
-                        if (cosAngle >= maxFovCos &&
-                            (throughWalls || hasLineOfSight(eyes, nearest)) &&
-                            isBetterFallback(cosAngle, distSq, bestFallbackCos, bestFallbackDistSq)
-                        ) {
-                            bestFallbackEntity = entity
-                            bestFallbackCos = cosAngle
-                            bestFallbackDistSq = distSq
-                        }
+
+                    if (hitInfo.distanceSq < bestDistance) {
+                        bestEntity = entity
+                        bestDistance = hitInfo.distanceSq
+                    }
+                }
+
+                else -> {
+                    val center = entity.hitBox.center
+                    val centerDirX = center.xCoord - eyes.xCoord
+                    val centerDirY = center.yCoord - eyes.yCoord
+                    val centerDirZ = center.zCoord - eyes.zCoord
+                    val centerDistSq = centerDirX * centerDirX + centerDirY * centerDirY + centerDirZ * centerDirZ
+                    if (centerDistSq > maxRangeSq) continue
+
+                    val centerCos = if (centerDistSq < 1.0E-8) {
+                        1.0
+                    } else {
+                        (lookVec.xCoord * centerDirX + lookVec.yCoord * centerDirY + lookVec.zCoord * centerDirZ) / sqrt(centerDistSq)
+                    }
+
+                    if (centerCos < maxFovCos) continue
+                    if (!throughWalls && !hasLineOfSight(eyes, center)) continue
+
+                    if (centerCos > bestCos + 1.0E-9 || (abs(centerCos - bestCos) <= 1.0E-9 && centerDistSq < bestDistance)) {
+                        bestEntity = entity
+                        bestCos = centerCos
+                        bestDistance = centerDistSq
                     }
                 }
             }
         }
 
-        val selectedTarget = bestHitEntity ?: bestFallbackEntity
-        if (selectedTarget != null) {
-            setTarget(selectedTarget)
-        } else {
-            clearTarget()
-        }
+        bestEntity?.let(::setTarget) ?: clearTarget()
     }
 
     private fun validateCurrentTarget() {
@@ -297,52 +280,60 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
         val maxFovCos = cos(Math.toRadians(maxFOV.toDouble()))
         val expandedBox = expandHitbox(target.hitBox)
 
-        if (distanceSqToAabb(eyes, expandedBox) > maxRangeSq) {
-            clearTarget()
-            return
-        }
-
         val rayEnd = Vec3(
             eyes.xCoord + lookVec.xCoord * range,
             eyes.yCoord + lookVec.yCoord * range,
             eyes.zCoord + lookVec.zCoord * range
         )
 
-        val hitInfo = getRayHitInfo(eyes, rayEnd, expandedBox)
-        if (hitInfo != null) {
-            if (!throughWalls && !hasLineOfSight(eyes, hitInfo.hitVec)) {
-                clearTarget()
+        when (targetSelectionMode) {
+            "Touching front most hitbox" -> {
+                val hitInfo = getRayHitInfo(eyes, rayEnd, expandedBox)
+                if (hitInfo == null) {
+                    clearTarget()
+                    return
+                }
+
+                if (!throughWalls && !hasLineOfSight(eyes, hitInfo.hitVec)) {
+                    clearTarget()
+                }
             }
-            return
-        }
 
-        val nearest = nearestPointOnAabb(eyes, expandedBox)
-        val dirX = nearest.xCoord - eyes.xCoord
-        val dirY = nearest.yCoord - eyes.yCoord
-        val dirZ = nearest.zCoord - eyes.zCoord
-        val dirLenSq = dirX * dirX + dirY * dirY + dirZ * dirZ
+            else -> {
+                val center = target.hitBox.center
+                val centerDirX = center.xCoord - eyes.xCoord
+                val centerDirY = center.yCoord - eyes.yCoord
+                val centerDirZ = center.zCoord - eyes.zCoord
+                val centerDistSq = centerDirX * centerDirX + centerDirY * centerDirY + centerDirZ * centerDirZ
 
-        if (dirLenSq < 1.0E-8) {
-            if (!throughWalls && !hasLineOfSight(eyes, nearest)) {
-                clearTarget()
+                if (centerDistSq > maxRangeSq) {
+                    clearTarget()
+                    return
+                }
+
+                if (centerDistSq < 1.0E-8) {
+                    if (!throughWalls && !hasLineOfSight(eyes, center)) {
+                        clearTarget()
+                    }
+                    return
+                }
+
+                val dot = lookVec.xCoord * centerDirX + lookVec.yCoord * centerDirY + lookVec.zCoord * centerDirZ
+                if (dot <= 0.0) {
+                    clearTarget()
+                    return
+                }
+
+                val cosAngle = dot / sqrt(centerDistSq)
+                if (cosAngle < maxFovCos) {
+                    clearTarget()
+                    return
+                }
+
+                if (!throughWalls && !hasLineOfSight(eyes, center)) {
+                    clearTarget()
+                }
             }
-            return
-        }
-
-        val dot = lookVec.xCoord * dirX + lookVec.yCoord * dirY + lookVec.zCoord * dirZ
-        if (dot <= 0.0) {
-            clearTarget()
-            return
-        }
-
-        val cosAngle = dot / sqrt(dirLenSq)
-        if (cosAngle < maxFovCos) {
-            clearTarget()
-            return
-        }
-
-        if (!throughWalls && !hasLineOfSight(eyes, nearest)) {
-            clearTarget()
         }
     }
 
@@ -501,14 +492,6 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
             else -> 0.0
         }
         return dx * dx + dy * dy + dz * dz
-    }
-
-    private fun isBetterFallback(cosAngle: Double, distSq: Double, bestCos: Double, bestDistSq: Double): Boolean {
-        return cosAngle > bestCos + 1.0E-9 || (abs(cosAngle - bestCos) <= 1.0E-9 && distSq < bestDistSq)
-    }
-
-    private fun isBetterHit(cosAngle: Double, centerDistSq: Double, bestCos: Double, bestCenterDistSq: Double): Boolean {
-        return cosAngle > bestCos + 1.0E-9 || (abs(cosAngle - bestCos) <= 1.0E-9 && centerDistSq < bestCenterDistSq)
     }
 
     fun isTargetSelected(): Boolean {

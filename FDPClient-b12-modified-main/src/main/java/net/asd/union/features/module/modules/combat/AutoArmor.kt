@@ -76,6 +76,9 @@ object AutoArmor : Module("AutoArmor", Category.COMBAT, hideModule = false) {
     val borderStrength by InventoryManager.borderStrength
     val borderColor by InventoryManager.borderColor
 
+    private var armorAttemptSignature: String? = null
+    private var armorAttemptLocked = false
+
     suspend fun equipFromHotbar() {
         if (!shouldOperate(onlyHotbar = true)) {
             autoArmorCurrentSlot = -1
@@ -85,9 +88,17 @@ object AutoArmor : Module("AutoArmor", Category.COMBAT, hideModule = false) {
 
         val thePlayer = mc.thePlayer ?: return
 
-        var hasClickedHotbar = false
-
         val stacks = thePlayer.openContainer.inventorySlots.map { it.stack }
+
+        val inventorySignature = getInventorySignature(stacks)
+        if (inventorySignature != armorAttemptSignature) {
+            armorAttemptSignature = inventorySignature
+            armorAttemptLocked = false
+        }
+
+        if (armorAttemptLocked) {
+            return
+        }
 
         val bestArmorSet = getBestArmorSet(stacks) ?: return
 
@@ -108,8 +119,6 @@ object AutoArmor : Module("AutoArmor", Category.COMBAT, hideModule = false) {
             // Check if target armor slot isn't occupied
             if (thePlayer.inventory.armorInventory[armorPos] != null)
                 continue
-
-            hasClickedHotbar = true
 
             val equippingAction = {
                 // Set current slot being stolen for highlighting
@@ -134,19 +143,23 @@ object AutoArmor : Module("AutoArmor", Category.COMBAT, hideModule = false) {
             // Schedule hotbar click
             nextTick(action = equippingAction)
 
+            armorAttemptLocked = true
+
             if (delayedSlotSwitch) {
                 delay(randomDelay(minDelay, maxDelay).toLong())
             }
+
+            break
         }
 
-        // Not really needed to bypass
-        delay(randomDelay(minDelay, maxDelay).toLong())
+        if (armorAttemptLocked) {
+            delay(randomDelay(minDelay, maxDelay).toLong())
+            awaitTicked()
 
-        awaitTicked()
-
-        // Sync selected slot next tick
-        if (hasClickedHotbar)
+            // Sync selected slot next tick
             nextTick { SilentHotbar.resetSlot(this) }
+            serverOpenInventory = false
+        }
     }
 
     suspend fun equipFromInventory() {
@@ -158,14 +171,24 @@ object AutoArmor : Module("AutoArmor", Category.COMBAT, hideModule = false) {
 
         val thePlayer = mc.thePlayer ?: return
 
+        val stacks = thePlayer.openContainer.inventorySlots.map { it.stack }
+        val inventorySignature = getInventorySignature(stacks)
+
+        if (inventorySignature != armorAttemptSignature) {
+            armorAttemptSignature = inventorySignature
+            armorAttemptLocked = false
+        }
+
+        if (armorAttemptLocked) {
+            return
+        }
+
         for (armorType in 0..3) {
             if (!shouldOperate()) {
                 autoArmorCurrentSlot = -1
                 autoArmorLastSlot = -1
                 return
             }
-
-            val stacks = thePlayer.openContainer.inventorySlots.map { it.stack }
 
             val armorSet = getBestArmorSet(stacks) ?: continue
 
@@ -227,10 +250,16 @@ object AutoArmor : Module("AutoArmor", Category.COMBAT, hideModule = false) {
                     }
                 }
             }
+
+            armorAttemptLocked = true
+            break
         }
 
         // Wait till all scheduled clicks were sent
-        awaitTicked()
+        if (armorAttemptLocked) {
+            awaitTicked()
+            serverOpenInventory = false
+        }
     }
 
     fun equipFromHotbarInChest(hotbarIndex: Int?, stack: ItemStack) {
@@ -303,5 +332,25 @@ object AutoArmor : Module("AutoArmor", Category.COMBAT, hideModule = false) {
         hasScheduledInLastLoop = true
 
         delay(randomDelay(minDelay, maxDelay).toLong())
+    }
+
+    private fun getInventorySignature(stacks: List<ItemStack?>): String {
+        val builder = StringBuilder(stacks.size * 16)
+
+        for (stack in stacks) {
+            if (stack == null) {
+                builder.append("null|")
+                continue
+            }
+
+            builder.append(stack.item?.unlocalizedName)
+                .append(':')
+                .append(stack.itemDamage)
+                .append(':')
+                .append(stack.stackSize)
+                .append('|')
+        }
+
+        return builder.toString()
     }
 }

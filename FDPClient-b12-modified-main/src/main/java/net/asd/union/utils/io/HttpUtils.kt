@@ -6,6 +6,8 @@
 package net.asd.union.utils.io
 
 import net.asd.union.utils.client.ClientUtils
+import net.asd.union.utils.client.ClientUtils.LOGGER
+import net.asd.union.utils.performance.StartupOptimizer
 import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -151,10 +153,18 @@ object HttpUtils {
         agent: String = DEFAULT_AGENT,
         headers: Array<Pair<String, String>> = emptyArray()
     ): Pair<String, Int> {
+        if (StartupOptimizer.isNetworkBlocked) {
+            LOGGER.warn("[HTTP] Network blocked, skipping GET request to: $url")
+            return "" to 0
+        }
         return request(url, "GET", agent, headers)
     }
 
     inline fun <reified T> getJson(url: String): T? {
+        if (StartupOptimizer.isNetworkBlocked) {
+            LOGGER.warn("[HTTP] Network blocked, skipping JSON GET: $url")
+            return null
+        }
         return runCatching {
             httpClient.newCall(Request.Builder().url(url).build()).execute().use {
                 it.body?.charStream()?.decodeJson<T>()
@@ -173,6 +183,10 @@ object HttpUtils {
         headers: Array<Pair<String, String>> = emptyArray(),
         body: RequestBody
     ): Pair<String, Int> {
+        if (StartupOptimizer.isNetworkBlocked) {
+            LOGGER.warn("[HTTP] Network blocked, skipping POST request to: $url")
+            return "" to 0
+        }
         return request(url, "POST", agent, headers, body)
     }
 
@@ -184,6 +198,10 @@ object HttpUtils {
         method: String,
         agent: String = DEFAULT_AGENT
     ): Int {
+        if (StartupOptimizer.isNetworkBlocked) {
+            LOGGER.warn("[HTTP] Network blocked, skipping responseCode request to: $url")
+            return 0
+        }
         val request = makeRequest(url, method, agent)
         httpClient.newCall(request).execute().use { response ->
             return response.code
@@ -199,6 +217,10 @@ object HttpUtils {
         agent: String = DEFAULT_AGENT,
         headers: Array<Pair<String, String>> = emptyArray()
     ) {
+        if (StartupOptimizer.isNetworkBlocked) {
+            LOGGER.warn("[HTTP] Network blocked, skipping download: $url")
+            return
+        }
         val request = makeRequest(url, "GET", agent, headers)
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {

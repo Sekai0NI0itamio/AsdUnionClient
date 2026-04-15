@@ -27,7 +27,10 @@ import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.projectile.EntityArrow;
+import net.minecraft.entity.projectile.EntityEgg;
+import net.minecraft.entity.item.EntityEnderPearl;
 import net.minecraft.entity.projectile.EntityFishHook;
+import net.minecraft.entity.projectile.EntitySnowball;
 import net.minecraft.entity.projectile.EntityPotion;
 import net.minecraft.item.ItemStack;
 import net.minecraft.potion.Potion;
@@ -42,6 +45,8 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.*;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+import static net.asd.union.utils.client.MinecraftInstance.mc;
 
 @Mixin(EntityLivingBase.class)
 public abstract class MixinEntityLivingBase extends MixinEntity {
@@ -189,23 +194,34 @@ public abstract class MixinEntityLivingBase extends MixinEntity {
     @Inject(method = "attackEntityFrom", at = @At("HEAD"))
     private void onDamage(DamageSource source, float amount, CallbackInfoReturnable<Boolean> cir) {
         Entity attacker = source.getEntity();
-        
-        if (attacker == null) {
+        Entity directSource = source.getSourceOfDamage();
+
+        if ((Object) this != mc.thePlayer) {
             return;
         }
-        
-        if (attacker instanceof EntityArrow) {
-            if (ProjectileVelocity.INSTANCE.handleEvents()) {
-                ProjectileVelocity.INSTANCE.onProjectileHit();
-            }
-        } else if (attacker instanceof EntityPotion) {
-            if (ProjectileVelocity.INSTANCE.handleEvents()) {
-                ProjectileVelocity.INSTANCE.onProjectileHit();
-            }
-        } else if (attacker instanceof EntityFishHook) {
-            if (RodVelocity.INSTANCE.handleEvents()) {
-                RodVelocity.INSTANCE.onRodHit();
-            }
+
+        boolean projectileArmed = ProjectileVelocity.INSTANCE.onMinecraftDamageSource(source, directSource, attacker);
+        boolean rodArmed = RodVelocity.INSTANCE.onMinecraftDamageSource(source, directSource, attacker);
+    }
+
+    @Inject(method = "knockBack", at = @At("HEAD"), cancellable = true)
+    private void fdp$directKnockBack(Entity attacker, float strength, double xRatio, double zRatio, CallbackInfo ci) {
+        if ((Object) this != mc.thePlayer) {
+            return;
+        }
+
+        boolean projectileMatch = attacker instanceof EntityArrow || attacker instanceof EntitySnowball || attacker instanceof EntityEgg || attacker instanceof EntityPotion || attacker instanceof EntityEnderPearl;
+        boolean rodMatch = attacker instanceof EntityFishHook;
+        boolean projectileArmed = ProjectileVelocity.INSTANCE.isKnockbackBlockArmed();
+        boolean rodArmed = RodVelocity.INSTANCE.isKnockbackBlockArmed();
+
+        if (projectileMatch && projectileArmed && ProjectileVelocity.INSTANCE.handleEvents()) {
+            ci.cancel();
+            return;
+        }
+
+        if (rodMatch && rodArmed && RodVelocity.INSTANCE.handleEvents()) {
+            ci.cancel();
         }
     }
 }

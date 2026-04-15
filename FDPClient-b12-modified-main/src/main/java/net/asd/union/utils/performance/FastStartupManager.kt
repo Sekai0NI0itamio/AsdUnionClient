@@ -49,10 +49,14 @@ object FastStartupManager {
         StartupOptimizer.useMinimalFonts = true
         StartupOptimizer.skipBrokenLanguages = true
         
+        // Block all network requests during fast startup
+        StartupOptimizer.blockNetwork()
+        
         LOGGER.info("Optimization settings:")
         LOGGER.info("  - Skip network requests: ${StartupOptimizer.skipNetworkRequests}")
         LOGGER.info("  - Use minimal fonts: ${StartupOptimizer.useMinimalFonts}")
         LOGGER.info("  - Skip broken languages: ${StartupOptimizer.skipBrokenLanguages}")
+        LOGGER.info("  - Block network: ${StartupOptimizer.isNetworkBlocked}")
     }
     
     /**
@@ -186,6 +190,9 @@ object FastStartupManager {
     fun completeStartup() {
         StartupProgress.advanceTo(StartupProgress.STEP_FINALIZE)
         val totalTime = System.currentTimeMillis() - startupStartTime
+        
+        // Unblock network after fast startup is complete
+        StartupOptimizer.unblockNetwork()
         
         LOGGER.info("=== FDPClient Fast Startup Complete ===")
         LOGGER.info("Total startup time: ${totalTime}ms (${totalTime / 1000.0}s)")

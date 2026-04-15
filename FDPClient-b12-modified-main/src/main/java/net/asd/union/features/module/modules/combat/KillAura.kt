@@ -775,9 +775,9 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
             if (targeterTarget != null && targeterTarget.isEntityAlive && isEnemy(targeterTarget)) {
                 if (updateRotations(targeterTarget)) {
                     target = targeterTarget
+                    return
                 }
             }
-            return
         }
 
         if (targetCandidates.isEmpty()) {
