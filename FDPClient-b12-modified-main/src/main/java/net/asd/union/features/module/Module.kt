@@ -6,6 +6,7 @@
 package net.asd.union.features.module
 
 import net.asd.union.FDPClient.isStarting
+import net.asd.union.FDPClient.isLoadingConfig
 import net.asd.union.config.BoolValue
 import net.asd.union.config.Value
 import net.asd.union.config.boolean
@@ -121,7 +122,7 @@ open class Module(
             clearTicked()
 
             // Play sound and add notification
-            if (!isStarting) {
+            if (!isStarting && !isLoadingConfig) {
                 mc.playSound("random.click".asResourceLocation())
 
                 addNotification(Notification(name,"${if (value) "Enabled" else "Disabled"} §r$name", if (value) Type.SUCCESS else Type.ERROR, 1000))

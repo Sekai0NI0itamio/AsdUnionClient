@@ -61,6 +61,9 @@
     "KillAuraTargeter": {
       "Settings": false
     },
+    "SmartKillAura": {
+      "Settings": false
+    },
     "ProjectileAimbot": {
       "Settings": false
     },

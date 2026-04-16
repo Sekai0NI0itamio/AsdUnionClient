@@ -14,6 +14,8 @@ import net.asd.union.handler.payload.ClientFixes;
 import net.asd.union.handler.render.AntiSpawnLag;
 import net.asd.union.handler.render.LazyChunkCache;
 import net.asd.union.handler.render.NoTitle;
+import net.asd.union.handler.sessiontabs.LiveTabRuntimeManager;
+import net.asd.union.handler.sessiontabs.SessionRuntimeScope;
 import net.asd.union.event.EventState;
 import net.asd.union.event.PacketEvent;
 import net.asd.union.utils.client.ClientUtils;
@@ -39,10 +41,12 @@ import net.minecraft.network.play.client.C17PacketCustomPayload;
 import net.minecraft.network.play.client.C19PacketResourcePackStatus;
 import net.minecraft.network.play.server.*;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.IChatComponent;
 import net.minecraft.world.WorldSettings;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.util.BlockPos;
 import net.minecraft.block.state.IBlockState;
+import net.minecraftforge.event.ForgeEventFactory;
 import net.minecraft.scoreboard.Scoreboard;
 import net.minecraft.scoreboard.ScorePlayerTeam;
 import org.spongepowered.asm.mixin.Final;
@@ -102,6 +106,11 @@ public abstract class MixinNetHandlerPlayClient {
 
     @Inject(method = "handleTitle", at = @At("HEAD"), cancellable = true)
     private void noTitle$cancelServerTitles(S45PacketTitle packetIn, CallbackInfo ci) {
+        if (SessionRuntimeScope.INSTANCE.isDetachedContextActive()) {
+            ci.cancel();
+            return;
+        }
+
         if (NoTitle.INSTANCE.getEnabled()) {
             NoTitle.INSTANCE.clearRenderedTitle();
             ci.cancel();
@@ -130,11 +139,32 @@ public abstract class MixinNetHandlerPlayClient {
 
     @Inject(method = "handleChat", at = @At("HEAD"), cancellable = true)
     private void fdp$dispatchChatPacketEvent(S02PacketChat packetIn, CallbackInfo ci) {
+        if (SessionRuntimeScope.INSTANCE.isDetachedContextActive()) {
+            final IChatComponent component = ForgeEventFactory.onClientChat(packetIn.getType(), packetIn.getChatComponent());
+
+            if (component != null && packetIn.getType() != 2) {
+                gameController.ingameGUI.getChatGUI().printChatMessage(component);
+            }
+
+            ci.cancel();
+            return;
+        }
+
         PacketEvent event = new PacketEvent(packetIn, EventState.RECEIVE);
         EventManager.INSTANCE.call(event);
         if (event.isCancelled()) {
             ci.cancel();
         }
+    }
+
+    @Inject(method = "onDisconnect", at = @At("HEAD"), cancellable = true)
+    private void fdp$handleDetachedDisconnect(IChatComponent reason, CallbackInfo ci) {
+        if (!SessionRuntimeScope.INSTANCE.isDetachedContextActive()) {
+            return;
+        }
+
+        LiveTabRuntimeManager.INSTANCE.markCurrentRuntimeDisconnected(reason);
+        ci.cancel();
     }
 
     @Inject(method = "handleResourcePack", at = @At("HEAD"), cancellable = true)

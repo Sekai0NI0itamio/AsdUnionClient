@@ -28,11 +28,25 @@ import org.lwjgl.input.Keyboard
 import org.lwjgl.opengl.Display
 import java.awt.Color
 
+enum class AltNameMode(val displayName: String) {
+    MC_MINECRAFT("Mc Minecraft"),
+    STYLIZED("Stylised"),
+    LEGACY("Legacy");
+
+    companion object {
+        fun fromString(value: String): AltNameMode = values().firstOrNull {
+            it.displayName.equals(value, ignoreCase = true) || it.name.equals(value, ignoreCase = true)
+        } ?: MC_MINECRAFT
+    }
+
+    fun next(): AltNameMode = values()[(ordinal + 1) % values().size]
+}
+
 class GuiClientConfiguration(val prevGui: GuiScreen) : AbstractScreen() {
 
     companion object {
         var enabledClientTitle = true
-        var stylisedAlts = true
+        var altNameMode = AltNameMode.MC_MINECRAFT
         var unformattedAlts = false
         var altsLength = 16
         var altsPrefix = ""
@@ -88,7 +102,7 @@ class GuiClientConfiguration(val prevGui: GuiScreen) : AbstractScreen() {
             6,
             width / 2 - 100,
             height / 4 + 100, // Start of AltManager section after section header
-            "Random alts mode (${if (stylisedAlts) "Stylised" else "Legacy"})"
+            "Random alts mode (${altNameMode.displayName})"
         )
 
         altsSlider = +GuiSlider(
@@ -97,7 +111,7 @@ class GuiClientConfiguration(val prevGui: GuiScreen) : AbstractScreen() {
             height / 4 + 100 + buttonSpacing * 1,
             200,
             20,
-            "${if (stylisedAlts && unformattedAlts) "Random alt max" else "Random alt"} length (",
+            "Alt name length (",
             ")",
             6.0,
             16.0,
@@ -114,14 +128,23 @@ class GuiClientConfiguration(val prevGui: GuiScreen) : AbstractScreen() {
             height / 4 + 100 + buttonSpacing * 2,
             "Unformatted alt names (${if (unformattedAlts) "On" else "Off"})"
         ).also {
-            it.enabled = stylisedAlts
+            it.enabled = altNameMode == AltNameMode.STYLIZED
         }
 
         altPrefixField = GuiTextField(2, Fonts.font35, width / 2 - 100, height / 4 + 100 + buttonSpacing * 3, 200, 20)
         altPrefixField.maxStringLength = 16
 
+        refreshAltControls()
+
         // Back button
         +GuiButton(8, width / 2 - 100, height / 4 + 100 + buttonSpacing * 5, "Back")
+    }
+
+    private fun refreshAltControls() {
+        altsModeButton.displayString = "Random alts mode (${altNameMode.displayName})"
+        unformattedAltsButton.displayString = "Unformatted alt names (${if (unformattedAlts) "On" else "Off"})"
+        unformattedAltsButton.enabled = altNameMode == AltNameMode.STYLIZED
+        altsSlider.updateSlider()
     }
 
     override fun actionPerformed(button: GuiButton) {
@@ -134,18 +157,12 @@ class GuiClientConfiguration(val prevGui: GuiScreen) : AbstractScreen() {
 
             5 -> {
                 unformattedAlts = !unformattedAlts
-                unformattedAltsButton.displayString = "Unformatted alt names (${if (unformattedAlts) "On" else "Off"})"
-                altsSlider.dispString = "${if (unformattedAlts) "Max random alt" else "Random alt"} length ("
-                altsSlider.updateSlider()
+                refreshAltControls()
             }
 
             6 -> {
-                stylisedAlts = !stylisedAlts
-                altsModeButton.displayString = "Random alts mode (${if (stylisedAlts) "Stylised" else "Legacy"})"
-                altsSlider.dispString =
-                    "${if (stylisedAlts && unformattedAlts) "Max random alt" else "Random alt"} length ("
-                altsSlider.updateSlider()
-                unformattedAltsButton.enabled = stylisedAlts
+                altNameMode = altNameMode.next()
+                refreshAltControls()
             }
 
 

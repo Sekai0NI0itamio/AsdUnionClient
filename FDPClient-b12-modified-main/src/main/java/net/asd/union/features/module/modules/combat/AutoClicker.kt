@@ -125,8 +125,10 @@ object AutoClicker : Module("AutoClicker", Category.COMBAT, hideModule = false) 
 
     val onTick = handler<UpdateEvent> {
         mc.thePlayer?.let { thePlayer ->
+            val mouseOver = mc.objectMouseOver
 
-            shouldJitter = !mc.objectMouseOver.typeOfHit.isBlock &&
+            shouldJitter = mouseOver != null &&
+                    !mouseOver.typeOfHit.isBlock &&
                     (thePlayer.isSwingInProgress || mc.gameSettings.keyBindAttack.pressTime != 0)
 
             if (jitter && ((left && shouldAutoClick && shouldJitter)

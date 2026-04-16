@@ -499,6 +499,11 @@
     "KeyBind": 19,
     "Array": true
   },
+  "SmartKillAura": {
+    "State": false,
+    "KeyBind": 35,
+    "Array": true
+  },
   "LightningDetect": {
     "State": false,
     "KeyBind": 0,

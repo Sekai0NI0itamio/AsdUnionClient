@@ -17,7 +17,6 @@ import net.asd.union.features.module.modules.combat.ProjectileVelocity;
 import net.asd.union.features.module.modules.combat.RodVelocity;
 import net.asd.union.utils.rotation.RotationSettings;
 import net.asd.union.features.module.modules.player.scaffolds.Scaffold;
-import net.asd.union.features.module.modules.player.scaffolds.Tower;
 import net.asd.union.utils.movement.MovementUtils;
 import net.asd.union.utils.rotation.Rotation;
 import net.asd.union.utils.rotation.RotationUtils;
@@ -125,7 +124,7 @@ public abstract class MixinEntityLivingBase extends MixinEntity {
 
     @Inject(method = "onLivingUpdate", at = @At("HEAD"))
     private void headLiving(CallbackInfo callbackInfo) {
-        if (NoJumpDelay.INSTANCE.handleEvents() || Scaffold.INSTANCE.handleEvents() && Tower.INSTANCE.getTowerModeValues().equals("Pulldown")) jumpTicks = 0;
+        if (NoJumpDelay.INSTANCE.handleEvents()) jumpTicks = 0;
     }
 
     @Inject(method = "getLook", at = @At("HEAD"), cancellable = true)

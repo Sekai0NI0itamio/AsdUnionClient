@@ -6,6 +6,8 @@
 package net.asd.union.injection.forge.mixins.gui;
 
 import net.asd.union.features.module.modules.client.ChatControl;
+import net.asd.union.handler.sessiontabs.SessionRuntimeScope;
+import net.asd.union.handler.sessiontabs.TabChatManager;
 import net.asd.union.ui.font.Fonts;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.*;
@@ -52,6 +54,21 @@ public abstract class MixinGuiNewChat {
 
     @Shadow
     public abstract int getChatWidth();
+
+    @Inject(method = "printChatMessageWithOptionalDeletion", at = @At("HEAD"), cancellable = true)
+    private void fdp$routeDetachedChat(IChatComponent chatComponent, int chatLineId, CallbackInfo callbackInfo) {
+        if (!SessionRuntimeScope.INSTANCE.isDetachedContextActive()) {
+            return;
+        }
+
+        TabChatManager.INSTANCE.recordDetachedChatMessage(chatComponent, chatLineId);
+        callbackInfo.cancel();
+    }
+
+    @Inject(method = "printChatMessageWithOptionalDeletion", at = @At("TAIL"))
+    private void fdp$capturePrintedChat(IChatComponent chatComponent, int chatLineId, CallbackInfo callbackInfo) {
+        TabChatManager.INSTANCE.capturePrintedMessage(chatComponent, chatLineId);
+    }
 
     /**
      * Redirects access to the FONT_HEIGHT field to allow customization of the font renderer.

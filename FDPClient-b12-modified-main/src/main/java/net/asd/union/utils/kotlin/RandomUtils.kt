@@ -8,6 +8,7 @@ package net.asd.union.utils.kotlin
 import me.liuli.elixir.account.CrackedAccount
 import net.asd.union.event.EventManager.call
 import net.asd.union.event.SessionUpdateEvent
+import net.asd.union.ui.client.gui.AltNameMode
 import net.asd.union.ui.client.gui.GuiClientConfiguration
 import net.asd.union.utils.client.MinecraftInstance.Companion.mc
 import net.minecraft.util.Session
@@ -37,6 +38,101 @@ object RandomUtils {
         }
     }
 
+    private val MC_MINECRAFT_NAMES by lazy { loadResourceLines("/assets/minecraft/asdunionclient/McMinecraftNames.txt") }
+    private val COSMETIC_NAMES by lazy { loadResourceLines("/assets/minecraft/asdunionclient/CosmeticNames.txt") }
+
+    private fun loadResourceLines(resourcePath: String): List<String> =
+        RandomUtils::class.java.getResourceAsStream(resourcePath)?.bufferedReader()?.use { reader ->
+            reader.readLines().map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        } ?: emptyList()
+
+    private fun randomAlphanumericChar(): Char = randomString(1).first()
+
+    private fun expandCosmeticPattern(pattern: String): String = buildString(pattern.length) {
+        pattern.forEach { char ->
+            append(if (char == '$' || char == '#') randomAlphanumericChar() else char)
+        }
+    }
+
+    private fun randomLegacyUsername(prefixPart: String, maxLength: Int): String {
+        val remainingLength = maxLength - prefixPart.length
+        return if (remainingLength > 0) prefixPart + randomString(remainingLength) else prefixPart
+    }
+
+    private fun randomStylisedUsername(prefixPart: String, maxLength: Int, raw: Boolean): String {
+        val remainingLength = maxLength - prefixPart.length
+        if (remainingLength < 3) {
+            return if (remainingLength > 0) prefixPart + randomString(remainingLength) else prefixPart
+        }
+
+        val adjectivePool = ADJECTIVES.filter { it.length <= remainingLength - 3 }
+        val animalPool = ANIMALS.filter { it.length <= remainingLength - 3 }
+        if (adjectivePool.isEmpty() || animalPool.isEmpty()) {
+            return prefixPart + randomString(remainingLength)
+        }
+
+        val adjective: String
+        val animal: String
+
+        if (Random.nextBoolean()) {
+            val candidateAdjective = adjectivePool.random()
+            val candidateAnimals = animalPool.filter { it.length <= remainingLength - candidateAdjective.length }
+            if (candidateAnimals.isEmpty()) return prefixPart + randomString(remainingLength)
+            adjective = candidateAdjective
+            animal = candidateAnimals.random()
+        } else {
+            val candidateAnimal = animalPool.random()
+            val candidateAdjectives = adjectivePool.filter { it.length <= remainingLength - candidateAnimal.length }
+            if (candidateAdjectives.isEmpty()) return prefixPart + randomString(remainingLength)
+            animal = candidateAnimal
+            adjective = candidateAdjectives.random()
+        }
+
+        val baseName = if (!raw) {
+            adjective + (if (adjective.length + animal.length < remainingLength) "_" else "") + animal
+        } else {
+            val leetName = leetRandomly(adjective) + (if (adjective.length + animal.length < remainingLength) random(
+                1,
+                FILLER_CHARS
+            ) else "") + leetRandomly(animal)
+            val fillerCount = remainingLength - leetName.length
+            StringBuilder(random(fillerCount, FILLER_CHARS)).insert(nextInt(0, fillerCount), leetName).toString()
+        }
+
+        return prefixPart + baseName
+    }
+
+    private fun randomMcMinecraftUsername(prefixPart: String, maxLength: Int): String {
+        if (MC_MINECRAFT_NAMES.isEmpty() || COSMETIC_NAMES.isEmpty()) {
+            val remainingLength = maxLength - prefixPart.length
+            return if (remainingLength > 0) prefixPart + randomString(remainingLength) else prefixPart
+        }
+
+        val candidates = mutableListOf<String>()
+        for (name in MC_MINECRAFT_NAMES) {
+            if (prefixPart.length + name.length > maxLength) continue
+
+            for (pattern in COSMETIC_NAMES) {
+                val cosmetic = expandCosmeticPattern(pattern)
+                if (prefixPart.length + name.length + cosmetic.length <= maxLength) {
+                    candidates += prefixPart + name + cosmetic
+                }
+            }
+        }
+
+        if (candidates.isNotEmpty()) {
+            return candidates.random()
+        }
+
+        val nameOnlyCandidates = MC_MINECRAFT_NAMES.filter { prefixPart.length + it.length <= maxLength }
+        if (nameOnlyCandidates.isNotEmpty()) {
+            return prefixPart + nameOnlyCandidates.random()
+        }
+
+        val remainingLength = maxLength - prefixPart.length
+        return if (remainingLength > 0) prefixPart + randomString(remainingLength) else prefixPart
+    }
+
     @JvmOverloads
     fun randomAccount(changeSession: Boolean = true): CrackedAccount {
         val crackedAccount = CrackedAccount()
@@ -55,16 +151,7 @@ object RandomUtils {
     }
 
     /**
-     * Generates 16 char long names in this format:
-     * (x = random separator character (0-9_))
-     *
-     * xxx (random count, to fill target length)
-     * ADJECTIVE (randomly swapped leetable letters, first and last char are excluded to keep name readable)
-     * x (acts like a space, always if under target length)
-     * ANIMAL (same as adjective)
-     * xxx (random count, to fill target length)
-     *
-     * 68 332 277 724 combinations (@see https://github.com/Itamio/LiquidBounce/pull/923#issuecomment-145525193)
+     * Generates a random alt name using the active client alt mode.
      */
 
     fun randomUsername(
@@ -72,44 +159,23 @@ object RandomUtils {
         maxLength: Int = GuiClientConfiguration.altsLength,
         raw: Boolean = GuiClientConfiguration.unformattedAlts
     ): String {
-        // Adjust max length by accounting for the prefix and underscore if prefix is not empty.
-        val adjustedMaxLength = maxLength - if (customPrefix.isNotEmpty()) customPrefix.length + 1 else 0
+        return randomUsername(GuiClientConfiguration.altNameMode, customPrefix, maxLength, raw)
+    }
 
-        // If the adjusted length is not valid, return just the prefix (or empty string if no prefix).
-        if (adjustedMaxLength <= 0) return customPrefix
+    fun randomUsername(
+        mode: AltNameMode,
+        customPrefix: String,
+        maxLength: Int,
+        raw: Boolean
+    ): String {
+        val prefixPart = if (customPrefix.isNotEmpty()) "${customPrefix}_" else ""
+        if (prefixPart.length >= maxLength) return customPrefix
 
-        // Returns classic random username if stylised alts aren't enabled.
-        if (!GuiClientConfiguration.stylisedAlts) {
-            val randomName = randomString(adjustedMaxLength)
-            return if (customPrefix.isNotEmpty()) "${customPrefix}_$randomName" else randomName
+        return when (mode) {
+            AltNameMode.MC_MINECRAFT -> randomMcMinecraftUsername(prefixPart, maxLength)
+            AltNameMode.STYLIZED -> randomStylisedUsername(prefixPart, maxLength, raw)
+            AltNameMode.LEGACY -> randomLegacyUsername(prefixPart, maxLength)
         }
-
-        val adjective: String
-        val animal: String
-
-        // For all combinations to be equally probable, it is randomised, whether adjective or animal is chosen first.
-        if (Random.nextBoolean()) {
-            adjective = ADJECTIVES.filter { it.length <= adjustedMaxLength - 3 }.random()
-            animal = ANIMALS.filter { it.length <= adjustedMaxLength - adjective.length }.random()
-        } else {
-            animal = ANIMALS.filter { it.length <= adjustedMaxLength - 3 }.random()
-            adjective = ADJECTIVES.filter { it.length <= adjustedMaxLength - animal.length }.random()
-        }
-
-        // Generate the base name.
-        val baseName = if (!raw) {
-            adjective + (if (adjective.length + animal.length < adjustedMaxLength) "_" else "") + animal
-        } else {
-            val leetName = leetRandomly(adjective) + (if (adjective.length + animal.length < adjustedMaxLength) random(
-                1,
-                FILLER_CHARS
-            ) else "") + leetRandomly(animal)
-            val fillerCount = adjustedMaxLength - leetName.length
-            StringBuilder(random(fillerCount, FILLER_CHARS)).insert(nextInt(0, fillerCount), leetName).toString()
-        }
-
-        // Adds random prefix and suffix made up from filler characters.
-        return if (customPrefix.isNotEmpty()) "${customPrefix}_$baseName" else baseName
     }
 
     //Randomly converts "leetable" characters, skips first and last.

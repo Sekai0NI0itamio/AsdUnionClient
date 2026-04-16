@@ -30,7 +30,8 @@ object SettingsUtils {
      * Execute settings script.
      * @param script The script to apply.
      */
-    fun applyScript(script: String) {
+    @JvmOverloads
+    fun applyScript(script: String, persistConfig: Boolean = true) {
         script.lineSequence().forEachIndexed { index, s ->
             if (s.isEmpty() || s.startsWith('#')) {
                 return@forEachIndexed
@@ -120,7 +121,9 @@ object SettingsUtils {
             }
         }
 
-        FileManager.saveConfig(FileManager.valuesConfig)
+        if (persistConfig) {
+            FileManager.saveConfig(FileManager.valuesConfig)
+        }
     }
 
     // Utility functions for setting target settings

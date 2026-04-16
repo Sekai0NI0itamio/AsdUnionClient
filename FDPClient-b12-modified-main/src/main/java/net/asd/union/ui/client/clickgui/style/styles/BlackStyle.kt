@@ -8,6 +8,7 @@ package net.asd.union.ui.client.clickgui.style.styles
 import net.asd.union.config.*
 import net.asd.union.features.module.modules.client.ClickGUIModule.scale
 import net.asd.union.features.module.modules.client.Friends
+import net.asd.union.features.module.modules.other.AutoText
 import net.asd.union.ui.client.clickgui.ClickGui.clamp
 import net.asd.union.ui.client.clickgui.Panel
 import net.asd.union.ui.client.clickgui.elements.ButtonElement
@@ -28,16 +29,78 @@ import net.asd.union.utils.render.RenderUtils.drawFilledCircle
 import net.asd.union.utils.render.RenderUtils.drawRect
 import net.asd.union.utils.render.RenderUtils.drawTexture
 import net.asd.union.utils.render.RenderUtils.updateTextureCache
+import net.minecraft.client.gui.GuiTextField
 import net.minecraft.client.gui.ScaledResolution
 import net.minecraft.util.StringUtils
 import net.minecraftforge.fml.relauncher.Side
 import net.minecraftforge.fml.relauncher.SideOnly
 import java.awt.Color
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 @SideOnly(Side.CLIENT)
 object BlackStyle : Style() {
+    private const val LIST_ENTRY_HEIGHT = 12
+    private const val LIST_BOTTOM_PADDING = 4
+    private const val LIST_MAX_VISIBLE_ENTRIES = 6
+    private const val LIST_VIEWPORT_HEIGHT = LIST_MAX_VISIBLE_ENTRIES * LIST_ENTRY_HEIGHT + LIST_BOTTOM_PADDING
+    private const val LIST_SCROLLBAR_WIDTH = 3
+
+    private fun beginTextEdit(value: Value<String>, x: Int, y: Int, width: Int, initialText: String = value.get()): GuiTextField {
+        val textField = GuiTextField(value.name.hashCode(), font35, x, y, width, 12).apply {
+            setMaxStringLength(32767)
+            setFocused(true)
+            setCanLoseFocus(false)
+            setTextColor(Color.WHITE.rgb)
+            setText(initialText)
+            setCursorPosition(initialText.length)
+            setSelectionPos(initialText.length)
+        }
+
+        activeTextValue = value
+        activeTextField = textField
+
+        return textField
+    }
+
+    private fun ensureTextEdit(value: Value<String>, x: Int, y: Int, width: Int, initialText: String? = null): GuiTextField {
+        if (activeTextValue != value || activeTextField == null || initialText != null) {
+            return beginTextEdit(value, x, y, width, initialText ?: value.get())
+        }
+
+        return activeTextField!!.apply {
+            xPosition = x
+            yPosition = y
+            this.width = width
+            height = 12
+            setFocused(true)
+            setCanLoseFocus(false)
+            setTextColor(Color.WHITE.rgb)
+        }
+    }
+
+    private fun focusTextEditAt(value: Value<String>, x: Int, y: Int, width: Int, clickX: Int, initialText: String? = null): GuiTextField {
+        val textField = ensureTextEdit(value, x, y, width, initialText)
+
+        if (width > 0) {
+            textField.mouseClicked(clickX.coerceIn(x, x + width), y + textField.height / 2, 0)
+        }
+
+        return textField
+    }
+
+    private data class ScrollRegion(var left: Int = 0, var top: Int = 0, var right: Int = 0, var bottom: Int = 0) {
+        fun contains(mouseX: Int, mouseY: Int): Boolean = mouseX in left..right && mouseY in top..bottom
+        fun isValid(): Boolean = right > left && bottom > top
+    }
+
+    private var friendListScroll = 0
+    private var messageListScroll = 0
+    private val friendListRegion = ScrollRegion()
+    private val messageListRegion = ScrollRegion()
+
     override fun drawPanel(mouseX: Int, mouseY: Int, panel: Panel) {
         drawBorderedRect(
             panel.x, panel.y - 3, panel.x + panel.width, panel.y + 17, 3, Color(20, 20, 20).rgb, Color(20, 20, 20).rgb
@@ -428,116 +491,172 @@ object BlackStyle : Style() {
                         }
 
                         is TextValue -> {
-                            // Helper function to check if point is in rectangle
                             fun isHovered(x1: Int, x2: Int, y1: Int, y2: Int, mx: Int, my: Int): Boolean {
                                 return mx in x1..x2 && my in y1..y2
                             }
 
-                            val text = value.name + ": " + value.get()
-                            var inputWidth = font35.getStringWidth(text) + 8
-
-                            // Check if this TextValue is the active one (being edited)
-                            val isFocused = activeTextValue == value
+                            val editorWidth = (maxX - minX).coerceAtMost(200).coerceAtLeast(0)
+                            val inputY = yPos
+                            val isFocused = activeTextValue == value && activeTextField != null
 
                             if (isFocused) {
-                                // Render as input field when focused
-                                val inputValue = if (value.get().isEmpty()) "_" else value.get() + "_"
-                                inputWidth = (maxX - minX).coerceAtMost(200) // Max width for input field
-                                moduleElement.settingsWidth = inputWidth
+                                moduleElement.settingsWidth = editorWidth
 
-                                // Draw input field background
-                                drawRect(minX, yPos, minX + inputWidth, yPos + 12, Color(40, 40, 40).rgb)
+                                val textField = ensureTextEdit(value, minX, inputY, editorWidth)
 
-                                // Draw input text with potential cursor
-                                font35.drawString(inputValue, minX + 4, yPos + 3, Color.WHITE.rgb)
+                                font35.drawString(value.name + ":", minX + 2, inputY - 9, Color(167, 167, 167).rgb)
+                                textField.drawTextBox()
 
-                                // Draw the label
-                                font35.drawString(value.name + ":", minX + 2, yPos - 9, Color(167, 167, 167).rgb)
+                                if (mouseButton == 0) {
+                                    if (isHovered(minX, minX + editorWidth, inputY, inputY + 12, mouseX, mouseY)) {
+                                        textField.mouseClicked(mouseX, mouseY, mouseButton)
+                                        return true
+                                    }
 
-                                // Handle click outside to unfocus
-                                if (mouseButton == 0 && !isHovered(minX, minX + inputWidth, yPos, yPos + 12, mouseX, mouseY)) {
                                     activeTextValue = null
+                                    activeTextField = null
+                                    AutoText.cancelMessageEdit()
                                 }
                             } else {
-                                // Render as clickable label when not focused
                                 val displayText = value.name + ": " + (if (value.get().isEmpty()) "<click to enter>" else value.get())
-                                inputWidth = font35.getStringWidth(displayText) + 8
-                                moduleElement.settingsWidth = inputWidth
+                                moduleElement.settingsWidth = font35.getStringWidth(displayText) + 8
 
-                                font35.drawString(displayText, minX + 2, yPos + 2, if (isHovered(minX, maxX, yPos, yPos + 10, mouseX, mouseY)) Color(167, 167, 167).rgb else Color.WHITE.rgb)
+                                font35.drawString(
+                                    displayText,
+                                    minX + 2,
+                                    inputY + 2,
+                                    if (isHovered(minX, maxX, inputY, inputY + 10, mouseX, mouseY)) Color(167, 167, 167).rgb else Color.WHITE.rgb
+                                )
 
-                                // Handle click to focus
-                                if (mouseButton == 0 && isHovered(minX, maxX, yPos, yPos + 10, mouseX, mouseY)) {
-                                    activeTextValue = value
+                                if (mouseButton == 0 && isHovered(minX, maxX, inputY, inputY + 10, mouseX, mouseY)) {
+                                    focusTextEditAt(value, minX, inputY, editorWidth, mouseX)
+                                    AutoText.cancelMessageEdit()
+                                    return true
                                 }
                             }
 
                             yPos += 11
 
-                            // If this is the AddFriend TextValue, render the list of friends below it
                             if (value.name == "AddFriend") {
-                                // Get the Friends module to access the friend list
                                 val friends = Friends.getFriends()
+                                val listTop = yPos
+                                val listHeight = LIST_VIEWPORT_HEIGHT
+                                val listBottom = listTop + listHeight
 
-                                // Draw each friend with an X button to remove
-                                for ((index, friend) in friends.withIndex()) {
-                                    val friendText = friend
-                                    val removeButtonX = maxX - 15  // X button x position (15 pixels from right)
-                                    val removeButtonY = yPos + index * 12  // Y position based on friend index
+                                friendListScroll = friendListScroll.coerceIn(0, max(0, friends.size - LIST_MAX_VISIBLE_ENTRIES))
+                                friendListRegion.left = minX
+                                friendListRegion.top = listTop
+                                friendListRegion.right = maxX
+                                friendListRegion.bottom = listBottom
 
-                                    // Draw friend name
-                                    font35.drawString(friendText, minX + 4, removeButtonY + 2, Color.WHITE.rgb)
+                                if (listHeight > 0) {
+                                    drawRect(minX, listTop, maxX, listBottom, Color(28, 28, 28, 180).rgb)
 
-                                    // Draw remove button ("X")
-                                    drawRect(removeButtonX - 10, removeButtonY, removeButtonX, removeButtonY + 10, Color(200, 50, 50).rgb)
-                                    font35.drawString("X", removeButtonX - 7, removeButtonY + 2, Color.WHITE.rgb)
+                                    val startIndex = friendListScroll
+                                    val endIndex = min(friends.size, startIndex + LIST_MAX_VISIBLE_ENTRIES)
 
-                                    // Check if remove button was clicked
-                                    if (mouseButton == 0 && isHovered(removeButtonX - 10, removeButtonX, removeButtonY, removeButtonY + 10, mouseX, mouseY)) {
-                                        Friends.removeFriend(friend)
-                                        // This will trigger a redraw of the GUI on the next frame
+                                    for (index in startIndex until endIndex) {
+                                        val friend = friends[index]
+                                        val friendY = listTop + (index - startIndex) * LIST_ENTRY_HEIGHT
+                                        val removeButtonX = maxX - 15
+
+                                        font35.drawString(friend, minX + 4, friendY + 2, Color.WHITE.rgb)
+                                        drawRect(removeButtonX - 10, friendY, removeButtonX, friendY + 10, Color(200, 50, 50).rgb)
+                                        font35.drawString("X", removeButtonX - 7, friendY + 2, Color.WHITE.rgb)
+
+                                        if (mouseButton == 0 && isHovered(removeButtonX - 10, removeButtonX, friendY, friendY + 10, mouseX, mouseY)) {
+                                            Friends.removeFriend(friend)
+                                            return true
+                                        }
                                     }
 
-                                    yPos += 12
+                                    if (friends.size > LIST_MAX_VISIBLE_ENTRIES) {
+                                        val trackX1 = maxX - LIST_SCROLLBAR_WIDTH
+                                        val trackX2 = maxX
+                                        val trackHeight = listHeight
+                                        val maxScroll = friends.size - LIST_MAX_VISIBLE_ENTRIES
+                                        val thumbHeight = max(
+                                            10,
+                                            (trackHeight.toFloat() * LIST_MAX_VISIBLE_ENTRIES / friends.size).roundToInt()
+                                        )
+                                        val thumbTravel = max(1, trackHeight - thumbHeight)
+                                        val thumbTop = listTop + ((friendListScroll.toFloat() / maxScroll) * thumbTravel).roundToInt()
+
+                                        drawRect(trackX1, listTop, trackX2, listBottom, Color(15, 15, 15, 160).rgb)
+                                        drawRect(trackX1, thumbTop, trackX2, thumbTop + thumbHeight, Color(95, 95, 95, 220).rgb)
+                                    }
+
+                                    yPos += listHeight
                                 }
 
-                                // Add some spacing after the friend list
-                                if (friends.isNotEmpty()) {
-                                    yPos += 4
-                                }
+                                if (listHeight > 0) yPos += LIST_BOTTOM_PADDING
                             }
 
-                            // If this is the AddMessage TextValue, render the list of messages below it
                             if (value.name == "AddMessage") {
-                                // Get the AutoText module to access the message list
-                                val messages = net.asd.union.features.module.modules.other.AutoText.getMessages()
+                                val messages = AutoText.getMessages()
+                                val listTop = yPos
+                                val listHeight = LIST_VIEWPORT_HEIGHT
+                                val listBottom = listTop + listHeight
 
-                                // Draw each message with an X button to remove
-                                for ((id, message) in messages) {
-                                    val displayText = "[$id] ${if (message.length > 25) message.take(25) + "..." else message}"
-                                    val removeButtonX = maxX - 15  // X button x position (15 pixels from right)
-                                    val removeButtonY = yPos  // Y position based on message index
+                                messageListScroll = messageListScroll.coerceIn(0, max(0, messages.size - LIST_MAX_VISIBLE_ENTRIES))
+                                messageListRegion.left = minX
+                                messageListRegion.top = listTop
+                                messageListRegion.right = maxX
+                                messageListRegion.bottom = listBottom
 
-                                    // Draw message text
-                                    font35.drawString(displayText, minX + 4, removeButtonY + 2, Color.WHITE.rgb)
+                                if (listHeight > 0) {
+                                    drawRect(minX, listTop, maxX, listBottom, Color(28, 28, 28, 180).rgb)
 
-                                    // Draw remove button ("X")
-                                    drawRect(removeButtonX - 10, removeButtonY, removeButtonX, removeButtonY + 10, Color(200, 50, 50).rgb)
-                                    font35.drawString("X", removeButtonX - 7, removeButtonY + 2, Color.WHITE.rgb)
+                                    val startIndex = messageListScroll
+                                    val endIndex = min(messages.size, startIndex + LIST_MAX_VISIBLE_ENTRIES)
 
-                                    // Check if remove button was clicked
-                                    if (mouseButton == 0 && isHovered(removeButtonX - 10, removeButtonX, removeButtonY, removeButtonY + 10, mouseX, mouseY)) {
-                                        net.asd.union.features.module.modules.other.AutoText.removeMessage(id)
-                                        // This will trigger a redraw of the GUI on the next frame
+                                    for (index in startIndex until endIndex) {
+                                        val (id, message) = messages[index]
+                                        val displayText = "[$id] ${if (message.length > 25) message.take(25) + "..." else message}"
+                                        val removeButtonX = maxX - 15
+                                        val messageY = listTop + (index - startIndex) * LIST_ENTRY_HEIGHT
+                                        val editingMessage = AutoText.getEditingMessageId() == id
+
+                                        if (editingMessage) {
+                                            drawRect(minX, messageY, removeButtonX - 10, messageY + 10, Color(60, 90, 120, 120).rgb)
+                                        }
+
+                                        font35.drawString(displayText, minX + 4, messageY + 2, if (editingMessage) Color(170, 220, 255).rgb else Color.WHITE.rgb)
+                                        drawRect(removeButtonX - 10, messageY, removeButtonX, messageY + 10, Color(200, 50, 50).rgb)
+                                        font35.drawString("X", removeButtonX - 7, messageY + 2, Color.WHITE.rgb)
+
+                                        if (mouseButton == 0 && isHovered(removeButtonX - 10, removeButtonX, messageY, messageY + 10, mouseX, mouseY)) {
+                                            AutoText.removeMessage(id)
+                                            return true
+                                        }
+
+                                        if (mouseButton == 0 && isHovered(minX, removeButtonX - 11, messageY, messageY + 10, mouseX, mouseY)) {
+                                            val editedMessage = AutoText.beginMessageEdit(id) ?: return true
+                                            focusTextEditAt(value, minX, inputY, editorWidth, mouseX, editedMessage)
+                                            return true
+                                        }
                                     }
 
-                                    yPos += 12
+                                    if (messages.size > LIST_MAX_VISIBLE_ENTRIES) {
+                                        val trackX1 = maxX - LIST_SCROLLBAR_WIDTH
+                                        val trackX2 = maxX
+                                        val trackHeight = listHeight
+                                        val maxScroll = messages.size - LIST_MAX_VISIBLE_ENTRIES
+                                        val thumbHeight = max(
+                                            10,
+                                            (trackHeight.toFloat() * LIST_MAX_VISIBLE_ENTRIES / messages.size).roundToInt()
+                                        )
+                                        val thumbTravel = max(1, trackHeight - thumbHeight)
+                                        val thumbTop = listTop + ((messageListScroll.toFloat() / maxScroll) * thumbTravel).roundToInt()
+
+                                        drawRect(trackX1, listTop, trackX2, listBottom, Color(15, 15, 15, 160).rgb)
+                                        drawRect(trackX1, thumbTop, trackX2, thumbTop + thumbHeight, Color(95, 95, 95, 220).rgb)
+                                    }
+
+                                    yPos += listHeight
                                 }
 
-                                // Add some spacing after the message list
-                                if (messages.isNotEmpty()) {
-                                    yPos += 4
-                                }
+                                if (listHeight > 0) yPos += LIST_BOTTOM_PADDING
                             }
                         }
 
@@ -872,6 +991,24 @@ object BlackStyle : Style() {
 
         if (mouseButton == -1) {
             sliderValueHeld = null
+        }
+
+        return false
+    }
+
+    override fun handleScroll(mouseX: Int, mouseY: Int, wheel: Int): Boolean {
+        if (wheel == 0) {
+            return false
+        }
+
+        if (friendListRegion.isValid() && friendListRegion.contains(mouseX, mouseY)) {
+            if (wheel < 0) friendListScroll++ else friendListScroll--
+            return true
+        }
+
+        if (messageListRegion.isValid() && messageListRegion.contains(mouseX, mouseY)) {
+            if (wheel < 0) messageListScroll++ else messageListScroll--
+            return true
         }
 
         return false

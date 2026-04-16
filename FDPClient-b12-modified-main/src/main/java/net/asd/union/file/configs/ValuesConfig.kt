@@ -31,10 +31,11 @@ import net.asd.union.handler.render.AntiTranslucent
 import net.asd.union.handler.render.LazyChunkCache
 import net.asd.union.handler.render.NoChatEffects
 import net.asd.union.handler.render.NoTitle
+import net.asd.union.ui.client.gui.AltNameMode
 import net.asd.union.ui.client.gui.GuiClientConfiguration.Companion.altsLength
 import net.asd.union.ui.client.gui.GuiClientConfiguration.Companion.altsPrefix
+import net.asd.union.ui.client.gui.GuiClientConfiguration.Companion.altNameMode
 import net.asd.union.ui.client.gui.GuiClientConfiguration.Companion.enabledClientTitle
-import net.asd.union.ui.client.gui.GuiClientConfiguration.Companion.stylisedAlts
 import net.asd.union.ui.client.gui.GuiClientConfiguration.Companion.unformattedAlts
 import java.io.*
 
@@ -87,7 +88,15 @@ class ValuesConfig(file: File) : FileConfig(file) {
                     val jsonValue = value as JsonObject
                     if (jsonValue.has("EnabledClientTitle")) enabledClientTitle =
                         jsonValue["EnabledClientTitle"].asBoolean
-                    if (jsonValue.has("StylisedAlts")) stylisedAlts = jsonValue["StylisedAlts"].asBoolean
+                    if (jsonValue.has("AltNameMode")) {
+                        altNameMode = AltNameMode.fromString(jsonValue["AltNameMode"].asString)
+                    } else if (jsonValue.has("StylisedAlts")) {
+                        altNameMode = if (jsonValue["StylisedAlts"].asBoolean) {
+                            AltNameMode.STYLIZED
+                        } else {
+                            AltNameMode.LEGACY
+                        }
+                    }
                     if (jsonValue.has("AltsLength")) altsLength = jsonValue["AltsLength"].asInt
                     if (jsonValue.has("CleanAlts")) unformattedAlts = jsonValue["CleanAlts"].asBoolean
                     if (jsonValue.has("AltsPrefix")) altsPrefix = jsonValue["AltsPrefix"].asString
@@ -155,7 +164,7 @@ class ValuesConfig(file: File) : FileConfig(file) {
         val usernameForSave = SessionStorage.getUsernameForSave()
         clientObject.run {
             addProperty("EnabledClientTitle", enabledClientTitle)
-            addProperty("StylisedAlts", stylisedAlts)
+            addProperty("AltNameMode", altNameMode.displayName)
             addProperty("AltsLength", altsLength)
             addProperty("CleanAlts", unformattedAlts)
             addProperty("AltsPrefix", altsPrefix)

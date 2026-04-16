@@ -41,8 +41,10 @@ object ArmorComparator: MinecraftInstance {
 		}.thenComparingInt {
 			if (it.second in thePlayer.inventory.armorInventory) Int.MAX_VALUE
 			else it.first ?: Int.MAX_VALUE
+		}.thenComparingDouble {
+			// Prefer armor pieces with higher intrinsic defense + Protection before using durability as a tiebreaker.
+			-it.second.armorScore()
 		}.thenComparingInt {
-			// Prioritise sets with more durability, enchantments
 			-it.second.totalDurability
 		}.thenComparingInt {
 			-it.second.enchantmentCount
@@ -71,6 +73,9 @@ object ArmorComparator: MinecraftInstance {
 			}
 		}.maxByOrNull { it.defenseFactor }
 	}
+
+	@JvmStatic
+	fun getArmorScore(stack: ItemStack): Double = stack.armorScore()
 }
 
 /**
@@ -93,33 +98,12 @@ private inline fun Iterable<ItemStack?>?.indexedArmorStacks(indexCallback: (Int)
 
 class ArmorSet(private vararg val armorPairs: Pair<Int?, ItemStack>?) : Iterable<Pair<Int?, ItemStack>?> {
 	/**
-	 * 1.4.6 - 1.8.9 Armor calculations
-	 * https://minecraft.fandom.com/wiki/Armor?oldid=927013#Enchantments
-	 *
-	 * @return Average defense of the whole armor set.
+	 * Combined armor score of the whole set.
 	 */
 	val defenseFactor by lazy {
-		var baseDefensePercentage = 0
-		var epf = 0
-
-		forEach { pair ->
-			val stack = pair?.second ?: return@forEach
-			val item = stack.item as ItemArmor
-			baseDefensePercentage += item.armorMaterial.getDamageReductionAmount(item.armorType) * 4
-
-			val protectionLvl = stack.getEnchantmentLevel(Enchantment.protection)
-
-			// Calculate epf based on protection level
-			if (protectionLvl > 0)
-				epf += ((6 + protectionLvl * protectionLvl) * 0.75f / 3).toInt()
+		armorPairs.fold(0.0) { score, pair ->
+			score + (pair?.second?.armorScore() ?: 0.0)
 		}
-
-		val baseDefense = baseDefensePercentage / 100f
-
-		// Not ceiling epf up to simulate the fact that 0.75f is actually random number between 0.5 and 1
-		// By ceiling up, you for example get that 3x protection 1 is same as 4x protection 1, even tho 4x protection 1 has better overall average defense
-		// More details: https://www.guilded.gg/Itamio/groups/1dgpg8Jz/channels/034be45e-1b72-4d5a-bee7-d6ba52ba1657/chat?messageId=c0d88f1e-5ad6-48f3-8acb-d5ab7611164b
-		baseDefense + (1 - baseDefense) * epf.coerceAtMost(25) * 0.75f * 0.04f
 	}
 
 	override fun iterator() = armorPairs.iterator()
@@ -134,5 +118,17 @@ class ArmorSet(private vararg val armorPairs: Pair<Int?, ItemStack>?) : Iterable
 }
 
 operator fun ArmorSet?.contains(stack: ItemStack) = this?.contains(stack) ?: true
+
+private fun ItemStack.armorScore(): Double {
+	val armorItem = item as? ItemArmor ?: return 0.0
+	val armorPoints = armorItem.getArmorMaterial().getDamageReductionAmount(armorItem.armorType)
+	val protectionLevel = getEnchantmentLevel(Enchantment.protection)
+	val protectionEpf = if (protectionLevel > 0) {
+		((6 + protectionLevel * protectionLevel) * 0.75f / 3).toDouble()
+	} else 0.0
+
+	// Score the item's own armor value independently so strong Protection pieces are not diluted by the rest of the set.
+	return armorPoints / 25.0 + protectionEpf.coerceAtMost(25.0) * 0.03
+}
 
 private val NULL_LIST = listOf<Pair<Int?, ItemStack>?>(null)

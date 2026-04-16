@@ -6,6 +6,7 @@
 package net.asd.union.injection.forge.mixins.network;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOption;
@@ -14,12 +15,16 @@ import net.asd.union.event.EventManager;
 import net.asd.union.event.EventState;
 import net.asd.union.event.PacketEvent;
 import net.asd.union.handler.network.ConnectToRouter;
+import net.asd.union.handler.sessiontabs.LiveTabRuntimeManager;
 import net.asd.union.utils.client.ServerPingController;
+import net.minecraft.network.INetHandler;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.Packet;
+import net.minecraft.util.IChatComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -28,6 +33,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(NetworkManager.class)
 public class MixinNetworkManager {
     private static final Logger ROUTER_LOG = LogManager.getLogger("ConnectToRouter");
+
+    @Shadow
+    private Channel channel;
+
+    @Shadow
+    private INetHandler packetListener;
+
+    @Shadow
+    private IChatComponent terminationReason;
+
+    @Shadow
+    private boolean disconnected;
 
     private static boolean isServerPingerThread() {
         return ServerPingController.isServerPingerThread();
@@ -89,6 +106,24 @@ public class MixinNetworkManager {
         return future.syncUninterruptibly();
     }
 
+    @Inject(method = "channelActive", at = @At("HEAD"), cancellable = true)
+    private void cancelLateChannelActivation(ChannelHandlerContext context, CallbackInfo callbackInfo) {
+        if (disconnected) {
+            context.close();
+            callbackInfo.cancel();
+        }
+    }
+
+    @Inject(method = "closeChannel", at = @At("HEAD"), cancellable = true)
+    private void cancelCloseWithoutChannel(IChatComponent reason, CallbackInfo callbackInfo) {
+        if (channel == null) {
+            disconnected = true;
+            terminationReason = reason;
+            packetListener = null;
+            callbackInfo.cancel();
+        }
+    }
+
     private static ChannelFuture failedConnectFuture(Bootstrap bootstrap, InetAddress address, int port) {
         String message = "Invalid remote endpoint for connect: " + address + ":" + port;
         ROUTER_LOG.warn(message);
@@ -115,6 +150,11 @@ public class MixinNetworkManager {
     @Inject(method = "channelRead0", at = @At("HEAD"), cancellable = true)
     private void read(ChannelHandlerContext context, Packet<?> packet, CallbackInfo callback) {
         if (!isServerPingerThread()) {
+            if (LiveTabRuntimeManager.INSTANCE.enqueueIncomingPacket(packetListener, packet)) {
+                callback.cancel();
+                return;
+            }
+
             PacketEvent event = new PacketEvent(packet, EventState.RECEIVE);
             EventManager.INSTANCE.call(event);
             if (event.isCancelled()) {

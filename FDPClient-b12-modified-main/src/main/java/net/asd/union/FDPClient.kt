@@ -27,6 +27,7 @@ import net.asd.union.handler.lang.LanguageManager.loadLanguages
 import net.asd.union.handler.macro.MacroManager
 import net.asd.union.handler.network.ConnectToRouter
 import net.asd.union.handler.other.SessionStorage
+import net.asd.union.handler.sessiontabs.ClientTabManager
 import net.asd.union.handler.other.ConfigSync
 import net.asd.union.handler.payload.ClientFixes
 import net.asd.union.handler.render.AntiSpawnLag
@@ -123,7 +124,7 @@ object FDPClient {
     fun preload(): Future<*> {
         // Initialize fast startup optimizations
         net.asd.union.utils.performance.FastStartupManager.initializeFastStartup()
-        
+
         // Change theme of Swing
         UIManager.setLookAndFeel(FlatMacLightLaf())
 
@@ -152,6 +153,7 @@ object FDPClient {
             CombatManager
             MacroManager
             SessionStorage
+            ClientTabManager
             ConfigSync
             EntityCache
             ItemCache
@@ -213,6 +215,7 @@ object FDPClient {
             // Early loading already loaded accountsConfig and valuesConfig for router settings
             // Now load clickgui.json and hud.json which require fonts to be initialized
             FileManager.loadAllConfigs()
+            ClientTabManager.bootstrap()
             LOGGER.info("Configuration loaded successfully")
         } catch (e: Exception) {
             LOGGER.error("Failed to start client: ${e.message}")

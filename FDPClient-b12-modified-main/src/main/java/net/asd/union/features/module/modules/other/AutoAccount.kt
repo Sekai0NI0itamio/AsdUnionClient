@@ -25,6 +25,7 @@ import net.asd.union.utils.client.ServerUtils
 import net.minecraft.client.Minecraft
 import net.asd.union.utils.client.chat
 import net.asd.union.utils.kotlin.RandomUtils.randomAccount
+import net.asd.union.utils.kotlin.RandomUtils.random
 import net.asd.union.utils.kotlin.SharedScopes
 import net.minecraft.network.play.server.S02PacketChat
 import net.minecraft.network.play.client.C01PacketChatMessage
@@ -41,10 +42,24 @@ object AutoAccount :
     private const val AUTH_WINDOW_MILLIS = 30_000L
     private const val AUTH_SEND_DELAY_MILLIS = 1_000L
     private const val AUTH_RECHECK_DELAY_MILLIS = 3_000L
+    private const val RANDOM_PASSWORD_CHARSET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
     private val register by boolean("AutoRegister", true)
     private val login by boolean("AutoLogin", true)
     private val recordPasswords by boolean("RecordPasswords", true)
+
+    private val passwordModeValue = object : ListValue("PasswordMode", arrayOf("Custom Password", "Random Password"), "Custom Password") {
+        override fun onChange(oldValue: String, newValue: String): String {
+            if (!oldValue.equals(newValue, ignoreCase = true)) {
+                clearRandomPassword()
+            }
+
+            return super.onChange(oldValue, newValue)
+        }
+
+        override fun isSupported() = isAuthEnabled()
+    }
+    private val passwordMode by passwordModeValue
 
     // Gamster requires 8 chars+
     private val passwordValue = object : TextValue("Password", "zywl1337#") {
@@ -63,12 +78,16 @@ object AutoAccount :
                 else -> super.onChange(oldValue, newValue)
             }
 
-        override fun isSupported() = register || login
+        override fun isSupported() = isAuthEnabled() && passwordMode.equals("Custom Password", ignoreCase = true)
     }
     private val password by passwordValue
 
+    private val randomPasswordLength by int("RandomPasswordLength", 7, 5..9) {
+        isAuthEnabled() && passwordMode.equals("Random Password", ignoreCase = true)
+    }
+
     // Delay before sending commands
-    private val sendDelay by int("SendDelay", 1000, 0..5000) { passwordValue.isSupported() }
+    private val sendDelay by int("SendDelay", 1000, 0..5000) { isAuthEnabled() }
 
     private val autoSession by boolean("AutoSession", false)
     private val startupValue = boolean("RandomAccountOnStart", false) { autoSession }
@@ -102,6 +121,8 @@ object AutoAccount :
     private var authWindowEndsAt = 0L
     private var authAttemptToken = 0L
     private var authSessionCompleted = false
+    private var generatedRandomPassword: String? = null
+    private var generatedRandomPasswordLength = 0
 
     // Password storage system
     private val serverPasswords = mutableMapOf<String, String>() // serverIP -> password
@@ -120,12 +141,15 @@ object AutoAccount :
         } else {
             clearAuthWindow()
         }
+
+        clearRandomPassword()
     }
     
     // Save passwords to config on module disable
     override fun onDisable() {
         super.onDisable()
         clearAuthWindow()
+        clearRandomPassword()
         savePasswords()
     }
 
@@ -223,6 +247,29 @@ object AutoAccount :
         }
     }
 
+    private fun isAuthEnabled() = register || login
+
+    private fun clearRandomPassword() {
+        generatedRandomPassword = null
+        generatedRandomPasswordLength = 0
+    }
+
+    private fun activePassword(): String {
+        if (!passwordMode.equals("Random Password", ignoreCase = true)) {
+            return password
+        }
+
+        val length = randomPasswordLength
+        val cachedPassword = generatedRandomPassword
+
+        if (cachedPassword == null || generatedRandomPasswordLength != length) {
+            generatedRandomPassword = random(length, RANDOM_PASSWORD_CHARSET)
+            generatedRandomPasswordLength = length
+        }
+
+        return generatedRandomPassword!!
+    }
+
     private fun relog(info: String = "") {
         // Disconnect from server
         if (mc.currentServerData != null && mc.theWorld != null)
@@ -314,7 +361,8 @@ object AutoAccount :
         register && isRegisterPrompt(msg) -> {
             lastCommand = AuthCommand.REGISTER
             addNotification(Notification("Processing registration request.", "Auth", Type.INFO))
-            scheduleAuthCommand("/register $password $password", AuthCommand.REGISTER)
+            val passwordToUse = activePassword()
+            scheduleAuthCommand("/register $passwordToUse $passwordToUse", AuthCommand.REGISTER)
             true
         }
 
@@ -323,7 +371,7 @@ object AutoAccount :
             val serverIP = mc.currentServerData?.serverIP
             val accountName = mc.session.username
             val storedPassword = getStoredPassword(serverIP, accountName)?.takeIf { it.isNotBlank() }
-            val passwordToUse = storedPassword ?: password
+            val passwordToUse = storedPassword ?: activePassword()
             lastCommand = AuthCommand.LOGIN
 
             addNotification(Notification("Processing login request.", "Auth", Type.INFO))
@@ -336,7 +384,7 @@ object AutoAccount :
 
     // Use always = true so events always fire regardless of game state
     val onPacket = handler<PacketEvent>(always = true) { event ->
-        if (!isAuthWindowOpen()) {
+        if (!isAuthEnabled() || !isAuthWindowOpen()) {
             if (status != Status.STOPPED) {
                 status = Status.STOPPED
             }
@@ -367,7 +415,7 @@ object AutoAccount :
 
             is S02PacketChat, is S45PacketTitle -> {
                 // Don't respond to register / login prompts when failed once
-                if (!passwordValue.isSupported()) {
+                if (!isAuthEnabled()) {
                     return@handler
                 }
 
@@ -413,7 +461,7 @@ object AutoAccount :
     }
 
     val onWorld = handler<WorldEvent> { event ->
-        if (!passwordValue.isSupported()) return@handler
+        if (!isAuthEnabled()) return@handler
 
         // Reset the auth window on a fresh join, but keep SENT_COMMAND transitions intact.
         if (event.worldClient != null && status != Status.SENT_COMMAND && !authSessionCompleted) {
@@ -443,11 +491,7 @@ object AutoAccount :
     private fun success() {
         if (status == Status.SENT_COMMAND) {
             val accountName = mc.session.username
-            val serverIP = mc.currentServerData?.serverIP
-            
-            // Store the password if we just registered successfully
             if (lastCommand == AuthCommand.REGISTER) {
-                storePassword(serverIP, accountName, password)
                 addNotification(Notification("Registered and logged in as $accountName", "Registered", Type.SUCCESS))
             } else {
                 addNotification(Notification("Logged in as $accountName", "Logged", Type.SUCCESS))
@@ -505,7 +549,7 @@ object AutoAccount :
     
     // Called from MixinGuiNewChat to process incoming chat messages
     fun onChatMessage(message: String) {
-        if (!state || !passwordValue.isSupported() || status != Status.WAITING) return
+        if (!state || !isAuthEnabled() || status != Status.WAITING) return
         
         val msg = normalizeMessage(message)
         
@@ -513,7 +557,7 @@ object AutoAccount :
     }
 
     val onUpdate = handler<UpdateEvent> {
-        if (!state || !passwordValue.isSupported()) {
+        if (!state || !isAuthEnabled()) {
             return@handler
         }
 

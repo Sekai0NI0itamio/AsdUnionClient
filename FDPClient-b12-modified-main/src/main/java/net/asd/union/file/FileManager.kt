@@ -14,6 +14,7 @@ import net.asd.union.FDPClient.CLIENT_NAME
 import net.asd.union.FDPClient.background
 import net.asd.union.FDPClient.isStarting
 import net.asd.union.file.configs.*
+import net.asd.union.handler.sessiontabs.ClientTabManager
 import net.asd.union.utils.client.ClientUtils.LOGGER
 import net.asd.union.utils.client.MinecraftInstance
 import net.asd.union.utils.render.shader.Background
@@ -149,6 +150,8 @@ object FileManager : MinecraftInstance, Iterable<FileConfig> by FILE_CONFIGS {
      * Save all configs in file manager
      */
     fun saveAllConfigs() {
+        if (!ClientTabManager.canPersistToMainStorage()) return
+
         FILE_CONFIGS.forEach {
             try {
                 saveConfig(it)
@@ -175,11 +178,11 @@ object FileManager : MinecraftInstance, Iterable<FileConfig> by FILE_CONFIGS {
      */
     fun saveConfig(config: FileConfig, ignoreStarting: Boolean = true) {
         if (ignoreStarting && isStarting) return
+        if (!ClientTabManager.canPersistToMainStorage()) return
 
         try {
             if (!config.hasConfig()) config.createConfig()
             config.saveConfig()
-            LOGGER.info("[FileManager] Saved config: ${config.file.name}.")
         } catch (t: Throwable) {
             LOGGER.error("[FileManager] Failed to save config file: ${config.file.name}.", t)
         }

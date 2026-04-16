@@ -6,6 +6,7 @@
 package net.asd.union.features.module.modules.other
 
 import net.asd.union.config.*
+import net.asd.union.event.WorldEvent
 import net.asd.union.event.UpdateEvent
 import net.asd.union.event.handler
 import net.asd.union.features.module.Category
@@ -15,6 +16,8 @@ import net.asd.union.utils.timing.MSTimer
 import java.util.concurrent.ThreadLocalRandom
 
 object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModule = false) {
+
+    private const val JOIN_GRACE_MILLIS = 5_000L
 
     // Message input for GUI
     private val addMessageValue = TextValue("AddMessage", "")
@@ -72,6 +75,8 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
     
     // Anti-spam settings
     private val antiSpam by boolean("AntiSpam", false)
+    private val attachMessageToFront by boolean("Attach Message to Front", false) { antiSpam }
+    private val frontMessage by text("Front Message", "") { antiSpam && attachMessageToFront }
     private val attachMessage by boolean("AttachMessage", false) { antiSpam }
     private val attachText by text("AttachText", "&&&&hi&&&& && word && hello! &&& ma&&") { antiSpam && attachMessage }
     
@@ -83,9 +88,17 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
     private val msTimer = MSTimer()
     private var currentDelay = 0L
     private var dependentCache = mutableListOf<Int>()
+    private var editingMessageId: Int? = null
+    private var joinGraceEndsAt = 0L
     
     override fun onEnable() {
         resetState()
+        if (mc.theWorld != null) {
+            startJoinGrace()
+        } else {
+            clearJoinGrace()
+        }
+
         if (messages.isEmpty()) {
             chat("§c§lAutoText §7» §cNo messages in list! Use .autotext add <message> to add messages.")
         }
@@ -93,12 +106,33 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
     
     override fun onDisable() {
         resetState()
+        clearJoinGrace()
     }
     
     private fun resetState() {
         msTimer.reset()
         currentDelay = calculateDelay()
         dependentCache.clear()
+        editingMessageId = null
+        joinGraceEndsAt = 0L
+    }
+
+    private fun startJoinGrace() {
+        joinGraceEndsAt = System.currentTimeMillis() + JOIN_GRACE_MILLIS
+    }
+
+    private fun clearJoinGrace() {
+        joinGraceEndsAt = 0L
+    }
+
+    private fun isJoinGraceActive() = joinGraceEndsAt != 0L && System.currentTimeMillis() <= joinGraceEndsAt
+
+    val onWorld = handler<WorldEvent> { event ->
+        if (event.worldClient != null) {
+            startJoinGrace()
+        } else {
+            clearJoinGrace()
+        }
     }
     
     private fun calculateDelay(): Long {
@@ -113,7 +147,7 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
     }
     
     val onUpdate = handler<UpdateEvent> {
-        if (messages.isEmpty()) return@handler
+        if (messages.isEmpty() || isJoinGraceActive()) return@handler
         
         if (msTimer.hasTimePassed(currentDelay)) {
             val messageToSend = getNextMessage() ?: return@handler
@@ -181,10 +215,16 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
     private fun processMessage(message: String): String {
         if (!antiSpam) return message
         
-        val finalMessage = if (attachMessage) {
-            message + attachText
-        } else {
-            message
+        val finalMessage = buildString {
+            if (attachMessageToFront) {
+                append(frontMessage)
+            }
+
+            append(message)
+
+            if (attachMessage) {
+                append(attachText)
+            }
         }
         
         return replaceAmpersands(finalMessage)
@@ -213,6 +253,7 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
         messages.clear()
         messages.addAll(normalizeMessages(newMessages))
         dependentCache.clear()
+        editingMessageId = null
     }
 
     private fun normalizeMessages(entries: List<String>): List<String> {
@@ -220,7 +261,9 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
     }
 
     private fun updateMessages(newMessages: List<String>, saveImmediately: Boolean): Boolean {
-        return messagesValue.set(normalizeMessages(newMessages), saveImmediately)
+        val updated = messagesValue.set(normalizeMessages(newMessages), saveImmediately)
+        editingMessageId = null
+        return updated
     }
     
     // Public API for commands
@@ -229,6 +272,34 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
         if (normalizedMessage.isBlank()) return false
 
         return updateMessages(messages + normalizedMessage, saveImmediately)
+    }
+
+    fun beginMessageEdit(id: Int): String? {
+        val index = id - 1
+        if (index !in messages.indices) return null
+
+        editingMessageId = id
+        return messages[index]
+    }
+
+    fun getEditingMessageId(): Int? = editingMessageId
+
+    fun cancelMessageEdit() {
+        editingMessageId = null
+    }
+
+    fun updateMessage(id: Int, message: String, saveImmediately: Boolean = true): Boolean {
+        val index = id - 1
+        if (index !in messages.indices) return false
+
+        val normalizedMessage = message.trim()
+        if (normalizedMessage.isBlank()) return false
+
+        val updatedMessages = messages.toMutableList().apply {
+            set(index, normalizedMessage)
+        }
+
+        return updateMessages(updatedMessages, saveImmediately)
     }
     
     fun removeMessage(id: Int, saveImmediately: Boolean = true): Boolean {

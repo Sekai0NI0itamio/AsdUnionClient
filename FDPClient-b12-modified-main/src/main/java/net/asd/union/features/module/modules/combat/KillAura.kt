@@ -1254,7 +1254,7 @@ object KillAura : Module("KillAura", Category.COMBAT, Keyboard.KEY_G, hideModule
     }
 
     private fun shouldPrioritize(): Boolean = when {
-        !onScaffold && (Scaffold.handleEvents() && (Scaffold.placeRotation != null || currentRotation != null) || Tower.handleEvents() && Tower.isTowering) -> true
+        !onScaffold && Scaffold.handleEvents() && (Scaffold.placeRotation != null || currentRotation != null) -> true
 
         !onDestroyBlock && (Fucker.handleEvents() && !Fucker.noHit && Fucker.pos != null || Nuker.handleEvents()) -> true
 

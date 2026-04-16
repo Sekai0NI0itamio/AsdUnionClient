@@ -28,6 +28,7 @@ import net.asd.union.utils.render.RenderUtils;
 import net.asd.union.file.FileManager;
 import net.asd.union.handler.other.SessionStorage;
 import net.asd.union.handler.network.ConnectToRouter;
+import net.asd.union.handler.sessiontabs.ClientTabManager;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
@@ -262,6 +263,11 @@ public abstract class MixinMinecraft {
         }
     }
 
+    @Inject(method = "sendClickBlockToController", at = @At("HEAD"))
+    private void syncHeldBlockClick(boolean leftClick, CallbackInfo callbackInfo) {
+        ClientTabManager.INSTANCE.setMirroredBlockClick(leftClick);
+    }
+
     @Inject(method = "setWindowIcon", at = @At("HEAD"), cancellable = true)
     private void setWindowIcon(CallbackInfo callbackInfo) {
         if (Util.getOSType() != Util.EnumOS.OSX) {
@@ -287,6 +293,8 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "clickMouse", at = @At("HEAD"))
     private void clickMouse(CallbackInfo callbackInfo) {
+        ClientTabManager.INSTANCE.registerMirroredLeftClick();
+
         if (AutoClicker.INSTANCE.handleEvents()) {
             leftClickCounter = 0;
         }
@@ -303,6 +311,8 @@ public abstract class MixinMinecraft {
 
     @Inject(method = "rightClickMouse", at = @At(value = "FIELD", target = "Lnet/minecraft/client/Minecraft;rightClickDelayTimer:I", shift = At.Shift.AFTER))
     private void rightClickMouse(final CallbackInfo callbackInfo) {
+        ClientTabManager.INSTANCE.registerMirroredRightClick();
+
         CPSCounter.INSTANCE.registerClick(CPSCounter.MouseButton.RIGHT);
 
         final FastPlace fastPlace = FastPlace.INSTANCE;

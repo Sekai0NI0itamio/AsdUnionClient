@@ -10,6 +10,7 @@ import net.asd.union.event.EventManager;
 import net.asd.union.event.SessionUpdateEvent;
 import net.asd.union.handler.other.AutoReconnect;
 import net.asd.union.handler.payload.ClientFixes;
+import net.asd.union.handler.sessiontabs.ClientTabManager;
 import net.asd.union.file.FileManager;
 import net.asd.union.ui.client.altmanager.GuiAltManager;
 import net.asd.union.ui.client.altmanager.menus.GuiLoginProgress;
@@ -44,6 +45,7 @@ public abstract class MixinGuiDisconnected extends MixinGuiScreen {
 
     @Inject(method = "initGui", at = @At("RETURN"))
     private void initGui(CallbackInfo callbackInfo) {
+        final int topInset = ClientTabManager.INSTANCE.contentTop((GuiScreen) (Object) this);
         reconnectTimer = 0;
         buttonList.add(reconnectButton = new GuiButton(1, width / 2 - 100, height / 2 + field_175353_i / 2 + fontRendererObj.FONT_HEIGHT + 22, 98, 20, "Reconnect"));
         drawReconnectDelaySlider();
@@ -51,7 +53,7 @@ public abstract class MixinGuiDisconnected extends MixinGuiScreen {
         buttonList.add(new GuiButton(4, width / 2 + 2, height / 2 + field_175353_i / 2 + fontRendererObj.FONT_HEIGHT + 44, 98, 20, "Random Account"));
         buttonList.add(new GuiButton(5, this.width / 2 - 100, this.height / 2 + field_175353_i / 2 + this.fontRendererObj.FONT_HEIGHT + 66, 200, 20, "Donate Now"));
         buttonList.add(forgeBypassButton = new GuiButton(6, width / 2 - 100, height / 2 + field_175353_i / 2 + fontRendererObj.FONT_HEIGHT + 86, "Bypass AntiForge: " + (ClientFixes.INSTANCE.getFmlFixesEnabled() ? "On" : "Off")));
-        buttonList.add(new GuiButton(998, width - 94, 5, 88, 20, "Alt Manager"));
+        buttonList.add(new GuiButton(998, width - 94, topInset + 5, 88, 20, "Alt Manager"));
         buttonList.add(new GuiButton(8, width / 2 - 100, height / 2 + field_175353_i / 2 + fontRendererObj.FONT_HEIGHT + 44, 98, 20, "Settings"));
 
         updateSliderText();
@@ -93,7 +95,7 @@ public abstract class MixinGuiDisconnected extends MixinGuiScreen {
             case 6:
                 ClientFixes.INSTANCE.setFmlFixesEnabled(!ClientFixes.INSTANCE.getFmlFixesEnabled());
                 forgeBypassButton.displayString = "Bypass AntiForge: " + (ClientFixes.INSTANCE.getFmlFixesEnabled() ? "On" : "Off");
-                FileManager.INSTANCE.getValuesConfig().saveConfig();
+                FileManager.INSTANCE.saveConfig(FileManager.INSTANCE.getValuesConfig(), true);
                 break;
             case 998:
                 mc.displayGuiScreen(new GuiAltManager((GuiScreen) (Object) this));

@@ -28,6 +28,7 @@ import net.asd.union.ui.client.hud.HUD
 import net.asd.union.ui.client.hud.designer.GuiHudDesigner
 import net.asd.union.ui.client.hud.element.elements.Notification
 import net.asd.union.ui.client.hud.element.elements.Type
+import net.asd.union.features.module.modules.other.AutoText
 import net.asd.union.ui.font.AWTFontRenderer.Companion.assumeNonVolatile
 import net.asd.union.utils.client.ClientUtils
 import net.asd.union.features.module.modules.client.Friends
@@ -180,11 +181,17 @@ object ClickGui : GuiScreen() {
                 if (wheel != 0) {
                     var handledScroll = false
 
+                    if (style.handleScroll(mouseX, mouseY, wheel)) {
+                        handledScroll = true
+                    }
+
                     // Handle foremost panel.
-                    for (panel in panels.reversed()) {
-                        if (panel.handleScroll(mouseX, mouseY, wheel)) {
-                            handledScroll = true
-                            break
+                    if (!handledScroll) {
+                        for (panel in panels.reversed()) {
+                            if (panel.handleScroll(mouseX, mouseY, wheel)) {
+                                handledScroll = true
+                                break
+                            }
                         }
                     }
 
@@ -270,12 +277,73 @@ object ClickGui : GuiScreen() {
             }
         }
 
+        style.activeTextField?.updateCursorCounter()
+
         super.updateScreen()
     }
 
     override fun keyTyped(typedChar: Char, keyCode: Int) {
         // Handle text input for active TextValue
         val activeTextValue = style.activeTextValue
+        val activeTextField = style.activeTextField
+
+        if (activeTextValue != null && activeTextField != null) {
+            val specialAutoTextInput = activeTextValue.name == "AddFriend" || activeTextValue.name == "AddMessage" || AutoText.getEditingMessageId() != null
+
+            when (keyCode) {
+                Keyboard.KEY_RETURN, Keyboard.KEY_NUMPADENTER -> {
+                    val currentValue = activeTextField.getText()
+
+                    when {
+                        activeTextValue.name == "AddFriend" -> {
+                            if (currentValue.isNotBlank()) {
+                                Friends.addFriend(currentValue.trim())
+                            }
+
+                            activeTextValue.set("", false)
+                        }
+
+                        activeTextValue.name == "AddMessage" -> {
+                            if (currentValue.isNotBlank()) {
+                                val editingMessageId = AutoText.getEditingMessageId()
+                                if (editingMessageId != null) {
+                                    AutoText.updateMessage(editingMessageId, currentValue.trim(), false)
+                                } else {
+                                    AutoText.addMessage(currentValue.trim(), false)
+                                }
+
+                                saveConfig(valuesConfig)
+                            }
+
+                            activeTextValue.set("", false)
+                        }
+
+                        else -> {
+                            activeTextValue.set(currentValue.trim(), true)
+                        }
+                    }
+
+                    clearActiveTextInput()
+                    return
+                }
+
+                Keyboard.KEY_ESCAPE -> {
+                    clearActiveTextInput()
+                    return
+                }
+
+                else -> {
+                    activeTextField.textboxKeyTyped(typedChar, keyCode)
+
+                    if (!specialAutoTextInput) {
+                        activeTextValue.set(activeTextField.getText())
+                    }
+
+                    return
+                }
+            }
+        }
+
         if (activeTextValue != null) {
             when {
                 keyCode == Keyboard.KEY_RETURN -> {
@@ -335,6 +403,7 @@ object ClickGui : GuiScreen() {
     }
 
     override fun onGuiClosed() {
+        clearActiveTextInput()
         saveConfig(valuesConfig)
         saveConfig(clickGuiConfig)
         for (panel in panels) panel.fade = 0
@@ -342,6 +411,12 @@ object ClickGui : GuiScreen() {
 
     override fun initGui() {
         ignoreClosing = true
+    }
+
+    private fun clearActiveTextInput() {
+        style.activeTextValue = null
+        style.activeTextField = null
+        AutoText.cancelMessageEdit()
     }
 
     fun Int.clamp(min: Int, max: Int): Int = this.coerceIn(min, max.coerceAtLeast(0))

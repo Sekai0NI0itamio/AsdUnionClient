@@ -13,7 +13,6 @@ import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
 import net.asd.union.features.module.modules.player.scaffolds.Scaffold
-import net.asd.union.features.module.modules.player.scaffolds.Tower
 import net.asd.union.utils.block.block
 import net.asd.union.utils.client.BlinkUtils
 import net.asd.union.utils.client.PacketUtils.sendPacket
@@ -192,7 +191,7 @@ object AntiVoid : Module("AntiVoid", Category.MOVEMENT, hideModule = false) {
             }
 
             // Check for scaffold
-            if ((Scaffold.handleEvents() || Tower.handleEvents()) && Scaffold.placeRotation != null) {
+            if (Scaffold.handleEvents() && Scaffold.placeRotation != null) {
                 if (BlinkUtils.isBlinking && player.fallDistance < 1.5f) BlinkUtils.unblink()
                 if (pauseTicks < ticksToDelay) pauseTicks = ticksToDelay
             }

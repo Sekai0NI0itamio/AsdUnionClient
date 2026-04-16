@@ -19,7 +19,9 @@ import net.asd.union.utils.extensions.eyes
 import net.asd.union.utils.extensions.reset
 import net.asd.union.utils.extensions.sendUseItem
 import net.asd.union.utils.extensions.setSprintSafely
-import net.asd.union.utils.extensions.tryJump
+import net.asd.union.utils.pathing.BaritoneGoalNear
+import net.asd.union.utils.pathing.BaritoneNavigationSession
+import net.asd.union.utils.pathing.PathFollowCommand
 import net.asd.union.utils.rotation.RotationSettings
 import net.asd.union.utils.rotation.RotationUtils.setTargetRotation
 import net.asd.union.utils.rotation.RotationUtils.toRotation
@@ -27,6 +29,7 @@ import net.asd.union.utils.kotlin.RandomUtils.nextBoolean
 import net.asd.union.utils.kotlin.RandomUtils.nextInt
 import net.asd.union.utils.movement.MovementUtils.updateControls
 import net.minecraft.client.entity.EntityPlayerSP
+import net.minecraft.util.BlockPos
 import net.minecraft.util.Vec3
 import kotlin.math.sqrt
 
@@ -70,6 +73,8 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
     private var nextClickAt = 0L
     private var centerPoint: Vec3? = null
     private var returningToCenter = false
+    private val centerNavigator = BaritoneNavigationSession()
+    private var returnCommand = PathFollowCommand.idle()
 
     val onUpdate = handler<UpdateEvent> {
         val player = mc.thePlayer ?: return@handler
@@ -77,6 +82,8 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         if (mc.theWorld == null || player.isDead) {
             returningToCenter = false
             centerPoint = null
+            centerNavigator.clear()
+            returnCommand = PathFollowCommand.idle()
             resetInputs()
             return@handler
         }
@@ -84,6 +91,8 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         if (!centerPosition) {
             centerPoint = null
             returningToCenter = false
+            centerNavigator.clear()
+            returnCommand = PathFollowCommand.idle()
         } else if (centerPoint == null) {
             captureCenter(player)
         }
@@ -91,15 +100,20 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         if (centerPosition && centerPoint != null) {
             val distanceToCenter = distanceToCenter(player)
 
-            if (returningToCenter || distanceToCenter > blockRadius) {
+            if (returningToCenter || shouldReturnToCenter(player)) {
                 returningToCenter = true
 
                 if (distanceToCenter <= returnReleaseDistance()) {
                     returningToCenter = false
+                    centerNavigator.clear()
+                    returnCommand = PathFollowCommand.idle()
                 } else {
                     applyReturnMovement(player)
                     return@handler
                 }
+            } else {
+                centerNavigator.clear()
+                returnCommand = PathFollowCommand.idle()
             }
         }
 
@@ -146,10 +160,7 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         }
 
         if (returningToCenter) {
-            event.originalInput.moveForward = 1f
-            event.originalInput.moveStrafe = 0f
-            event.originalInput.jump = false
-            event.originalInput.sneak = false
+            returnCommand.applyToMovementInput(event.originalInput)
             return@handler
         }
 
@@ -160,7 +171,7 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
 
         event.originalInput.moveForward = 1f
         event.originalInput.moveStrafe = if (strafeRight) 1f else -1f
-        event.originalInput.jump = jump && player.onGround
+        event.originalInput.jump = mc.gameSettings.keyBindJump.isKeyDown
         event.originalInput.sneak = false
     }
 
@@ -181,6 +192,8 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         nextSwitchAt = if (switchItems) now + randomDelay(switchDelay) else 0L
 
         returningToCenter = false
+        centerNavigator.clear()
+        returnCommand = PathFollowCommand.idle()
 
         if (centerPosition) {
             mc.thePlayer?.let { captureCenter(it) }
@@ -198,6 +211,8 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         nextSwitchAt = 0L
         returningToCenter = false
         centerPoint = null
+        centerNavigator.clear()
+        returnCommand = PathFollowCommand.idle()
         resetInputs()
     }
 
@@ -247,34 +262,35 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         mc.gameSettings.keyBindBack.pressed = false
         mc.gameSettings.keyBindLeft.pressed = !strafeRight
         mc.gameSettings.keyBindRight.pressed = strafeRight
-        mc.gameSettings.keyBindJump.pressed = false
+        mc.gameSettings.keyBindJump.pressed = jump && player.onGround
         mc.gameSettings.keyBindSprint.pressed = sprint
 
         player setSprintSafely sprint
-
-        if (jump && player.onGround) {
-            player.tryJump()
-        }
 
         player.fixedSensitivityYaw += if (strafeRight) yawStep else -yawStep
     }
 
     private fun applyReturnMovement(player: EntityPlayerSP) {
         val center = centerPoint ?: return
+        val releaseDistance = returnReleaseDistance()
+
+        centerNavigator.updateGoal(
+            BaritoneGoalNear(BlockPos(center.xCoord, center.yCoord, center.zCoord), 1),
+            exactGoal = center,
+            successRadius = releaseDistance,
+        )
+
+        returnCommand = centerNavigator.tick(mc.theWorld, player)
+        val lookTarget = returnCommand.lookTarget ?: center
 
         setTargetRotation(
-            toRotation(Vec3(center.xCoord, player.eyes.yCoord, center.zCoord), false, player),
+            toRotation(Vec3(lookTarget.xCoord, player.eyes.yCoord, lookTarget.zCoord), false, player),
             options = returnRotationOptions,
         )
 
-        mc.gameSettings.keyBindForward.pressed = true
-        mc.gameSettings.keyBindBack.pressed = false
-        mc.gameSettings.keyBindLeft.pressed = false
-        mc.gameSettings.keyBindRight.pressed = false
-        mc.gameSettings.keyBindJump.pressed = false
-        mc.gameSettings.keyBindSprint.pressed = false
+        returnCommand.applyToKeybinds(mc.gameSettings)
 
-        player setSprintSafely false
+        player setSprintSafely (returnCommand.active && returnCommand.sprint)
     }
 
     private fun applyStoppedState(player: net.minecraft.client.entity.EntityPlayerSP) {
@@ -300,7 +316,18 @@ object AntiAFK : Module("AntiAFK", Category.PLAYER, gameDetecting = false, hideM
         return sqrt(deltaX * deltaX + deltaZ * deltaZ)
     }
 
-    private fun returnReleaseDistance() = (blockRadius * 0.8f).coerceAtLeast(0.5f).toDouble()
+    private fun shouldReturnToCenter(player: EntityPlayerSP): Boolean {
+        if (!centerPosition || centerPoint == null) {
+            return false
+        }
+
+        val horizontalMotion = sqrt(player.motionX * player.motionX + player.motionZ * player.motionZ)
+        val safetyMargin = maxOf(horizontalMotion, 0.35)
+
+        return distanceToCenter(player) + safetyMargin >= blockRadius.toDouble()
+    }
+
+    private fun returnReleaseDistance() = (blockRadius - 0.5f).coerceAtLeast(0.5f).toDouble()
 
     private fun switchHotbarSlot() {
         val player = mc.thePlayer ?: return

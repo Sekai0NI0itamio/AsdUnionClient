@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import net.asd.union.handler.sessiontabs.SessionRuntimeScope
 import net.asd.union.utils.client.ClientUtils
 import java.util.*
 import java.util.concurrent.CopyOnWriteArrayList
@@ -149,6 +150,10 @@ object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
     fun <T : Event> call(event: T): T {
         val hooks = registry[event.javaClass] ?: return event
 
+        if (SessionRuntimeScope.isDetachedContextActive()) {
+            return event
+        }
+
         val threadName = Thread.currentThread().name
         if (threadName.startsWith("Server Pinger") || 
             threadName.startsWith("Netty Client IO") || 
@@ -165,6 +170,10 @@ object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
 
     fun <T : Event> call(event: T, listener: Listenable): T {
         val hooks = registry[event.javaClass] ?: return event
+
+        if (SessionRuntimeScope.isDetachedContextActive()) {
+            return event
+        }
 
         val threadName = Thread.currentThread().name
         if (threadName.startsWith("Server Pinger") || 

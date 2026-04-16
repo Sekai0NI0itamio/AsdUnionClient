@@ -16,6 +16,7 @@ import net.asd.union.utils.client.MinecraftInstance
 import net.asd.union.utils.client.asResourceLocation
 import net.asd.union.utils.client.playSound
 import net.asd.union.utils.timing.WaitTickUtils
+import net.minecraft.client.gui.GuiTextField
 import org.lwjgl.input.Mouse
 import java.awt.Color
 import java.math.BigDecimal
@@ -29,11 +30,14 @@ abstract class Style : MinecraftInstance {
         }
 
     var activeTextValue: Value<String>? = null
+    var activeTextField: GuiTextField? = null
 
     abstract fun drawPanel(mouseX: Int, mouseY: Int, panel: Panel)
     abstract fun drawHoverText(mouseX: Int, mouseY: Int, text: String)
     abstract fun drawButtonElement(mouseX: Int, mouseY: Int, buttonElement: ButtonElement)
     abstract fun drawModuleElementAndClick(mouseX: Int, mouseY: Int, moduleElement: ModuleElement, mouseButton: Int?): Boolean
+
+    open fun handleScroll(mouseX: Int, mouseY: Int, wheel: Int): Boolean = false
 
     fun clickSound() {
         mc.playSound("gui.button.press".asResourceLocation())

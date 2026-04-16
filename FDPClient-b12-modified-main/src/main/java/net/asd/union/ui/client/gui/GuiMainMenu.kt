@@ -10,6 +10,7 @@ import net.asd.union.FDPClient.clientVersionText
 import net.asd.union.event.EventManager
 import net.asd.union.event.SessionUpdateEvent
 import net.asd.union.features.module.modules.client.HUDModule.guiColor
+import net.asd.union.handler.sessiontabs.ClientTabManager
 import net.asd.union.handler.other.SessionStorage
 import net.asd.union.ui.client.altmanager.GuiAltManager
 import net.asd.union.ui.client.clickgui.ClickGui
@@ -51,10 +52,13 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
     private lateinit var btnQuit: QuitButton
     private lateinit var accountTextField: GuiTextField
     private lateinit var btnRandomAccount: GuiButton
+    private lateinit var btnTabBarToggle: GuiButton
 
     override fun initGui() {
+        buttonList.clear()
         logo = ResourceLocation("${CLIENT_NAME.lowercase()}/mainmenu/logo.png")
         SessionStorage.applySavedUsername()
+        val topInset = ClientTabManager.contentTop(this)
         val centerY = height / 2 - 80
         val buttonWidth = 133
         val buttonHeight = 20
@@ -88,15 +92,16 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
         btnLanguage = ImageButton("LANGUAGE", ResourceLocation("${CLIENT_NAME.lowercase()}/mainmenu/globe.png"), width / 2 + 15, bottomY)
         btnForgeModList = ImageButton("FORGE MODS", ResourceLocation("${CLIENT_NAME.lowercase()}/mainmenu/forge.png"), width / 2 + 30, bottomY)
 
-        btnAddAccount = ImageButton("ALT MANAGER", ResourceLocation("${CLIENT_NAME.lowercase()}/mainmenu/add-account.png"), width - 55, 7)
-        btnQuit = QuitButton(width - 17, 7)
-        accountTextField = GuiTextField(10, mc.fontRendererObj, 10, 35, 150, 20).apply {
+        btnAddAccount = ImageButton("ALT MANAGER", ResourceLocation("${CLIENT_NAME.lowercase()}/mainmenu/add-account.png"), width - 55, topInset + 7)
+        btnQuit = QuitButton(width - 17, topInset + 7)
+        btnTabBarToggle = GuiButton(101, 10, topInset + 7, 130, 20, tabBarToggleText())
+        accountTextField = GuiTextField(10, mc.fontRendererObj, 10, topInset + 35, 150, 20).apply {
             maxStringLength = 32
             text = mc.session.username
         }
-        btnRandomAccount = GuiButton(100, 165, 35, 50, 20, "Rand")
+        btnRandomAccount = GuiButton(100, 165, topInset + 35, 50, 20, "Rand")
 
-        buttonList.addAll(listOf(btnSinglePlayer, btnMultiplayer, btnClientOptions, btnRandomAccount))
+        buttonList.addAll(listOf(btnSinglePlayer, btnMultiplayer, btnClientOptions, btnRandomAccount, btnTabBarToggle))
     }
 
     override fun keyTyped(typedChar: Char, keyCode: Int) {
@@ -113,6 +118,10 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
     }
 
     override fun mouseClicked(mouseX: Int, mouseY: Int, button: Int) {
+        if (ClientTabManager.handleScreenMouseClick(this, mouseX, mouseY, button)) {
+            return
+        }
+
         accountTextField.mouseClicked(mouseX, mouseY, button)
 
         buttonList.forEach { guiButton ->
@@ -150,6 +159,10 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
                 accountTextField.text = randomName
                 setOfflineAccount(randomName)
             }
+            101 -> {
+                ClientTabManager.toggleTabBarVisible()
+                applyTopInsetLayout()
+            }
             3 -> {} // Update check removed - do nothing
         }
     }
@@ -163,6 +176,8 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
 
     override fun drawScreen(mouseX: Int, mouseY: Int, partialTicks: Float) {
         assumeNonVolatile = true
+
+        applyTopInsetLayout()
 
         drawBackground(0)
 
@@ -246,7 +261,7 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
             Color(255, 255, 255, 100).rgb
         )
 
-        drawAccountManagerUI(mouseX, mouseY)
+        drawAccountBarControls(mouseX, mouseY)
 
         drawBloom(mouseX - 5, mouseY - 5, 10, 10, 16, Color(guiColor))
 
@@ -257,11 +272,15 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
         super.drawScreen(mouseX, mouseY, partialTicks)
     }
 
-    private fun drawAccountManagerUI(mouseX: Int, mouseY: Int) {
-        minecraftFont.drawStringWithShadow("Account:", 10f, 23f, Color(255, 255, 255, 200).rgb)
-        minecraftFont.drawStringWithShadow(mc.session.username, 70f, 23f, Color(0, 255, 0, 255).rgb)
+    private fun drawAccountBarControls(mouseX: Int, mouseY: Int) {
+        btnTabBarToggle.drawButton(mc, mouseX, mouseY)
 
-        Gui.drawRect(9, 34, 161, 56, Color(0, 0, 0, 150).rgb)
+        val topInset = ClientTabManager.contentTop(this)
+
+        minecraftFont.drawStringWithShadow("Account:", 10f, (topInset + 23).toFloat(), Color(255, 255, 255, 200).rgb)
+        minecraftFont.drawStringWithShadow(mc.session.username, 70f, (topInset + 23).toFloat(), Color(0, 255, 0, 255).rgb)
+
+        Gui.drawRect(9, topInset + 34, 161, topInset + 56, Color(0, 0, 0, 150).rgb)
         accountTextField.drawTextBox()
         btnRandomAccount.drawButton(mc, mouseX, mouseY)
     }
@@ -269,5 +288,32 @@ class GuiMainMenu : AbstractScreen(), GuiYesNoCallback {
     override fun updateScreen() {
         accountTextField.updateCursorCounter()
         super.updateScreen()
+    }
+
+    private fun applyTopInsetLayout() {
+        val topInset = ClientTabManager.contentTop(this)
+
+        if (::btnAddAccount.isInitialized) {
+            btnAddAccount.y = topInset + 7
+        }
+        if (::btnQuit.isInitialized) {
+            btnQuit.y = topInset + 7
+        }
+        if (::btnTabBarToggle.isInitialized) {
+            btnTabBarToggle.yPosition = topInset + 7
+            btnTabBarToggle.displayString = tabBarToggleText()
+        }
+        if (::accountTextField.isInitialized) {
+            accountTextField.yPosition = topInset + 35
+        }
+        if (::btnRandomAccount.isInitialized) {
+            btnRandomAccount.yPosition = topInset + 35
+        }
+    }
+
+    private fun tabBarToggleText() = if (ClientTabManager.isTabBarVisible()) {
+        "TAB BAR: ON"
+    } else {
+        "TAB BAR: OFF"
     }
 }

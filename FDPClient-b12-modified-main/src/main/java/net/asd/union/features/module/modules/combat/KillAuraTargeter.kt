@@ -19,7 +19,9 @@ import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
 import net.asd.union.features.module.modules.client.TargetModule
 import net.asd.union.features.module.modules.client.Teams
+import net.asd.union.features.module.modules.other.LinkBots
 import net.asd.union.handler.combat.CombatManager.isFocusEntity
+import net.asd.union.handler.sessiontabs.SessionRuntimeScope
 import net.asd.union.ui.font.Fonts
 import net.asd.union.utils.extensions.center
 import net.asd.union.utils.extensions.eyes
@@ -34,6 +36,7 @@ import net.minecraft.entity.player.EntityPlayer
 import net.minecraft.util.AxisAlignedBB
 import net.minecraft.util.MovingObjectPosition
 import net.minecraft.util.Vec3
+import net.minecraft.world.World
 import org.lwjgl.input.Keyboard
 import org.lwjgl.opengl.GL11.*
 import java.awt.Color
@@ -50,6 +53,7 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
     private val showHitbox by boolean("Show Hitbox", false)
     private val hitThroughEntitiesValue by boolean("HitThroughEntities", true)
     private val respectFriendsValue by boolean("RespectFriends", true)
+    private val mode by choices("Mode", arrayOf("Normal", "Link Bots"), "Normal") { LinkBots.isLinkedControlActive() }
     private val setTargetMode by choices("SetTargetToView", arrayOf("Once", "Always"), "Once")
     private val updateIntervalTicks by int("UpdateIntervalTicks", 2, 1..20) { setTargetMode == "Always" }
     private val targetSelectionMode by choices(
@@ -69,6 +73,12 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
     private var updateTickCounter = 0
     private var infoTickCounter = 0
     private var lastRenderInfo: Triple<String, String, String> = Triple("None", "Unable To determine", "0")
+
+    private data class LinkedTargetDescriptor(
+        val entityId: Int,
+        val uuid: String?,
+        val name: String
+    )
 
     override fun onEnable() {
         resetState(clearInfo = true)
@@ -495,17 +505,22 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
     }
 
     fun isTargetSelected(): Boolean {
-        val target = targetEntity ?: return false
-        if (!target.isEntityAlive) {
-            clearTarget()
-            return false
-        }
-        return targetName.isNotEmpty()
+        return getTargetEntity() != null && targetName.isNotEmpty()
     }
 
     fun isEmpty(): Boolean = emptyState
 
+    fun isLinkBotsModeActive(): Boolean {
+        return state && mode.equals("Link Bots", ignoreCase = true) && LinkBots.isLinkedControlActive()
+    }
+
     fun getTargetEntity(): EntityLivingBase? {
+        if (SessionRuntimeScope.isDetachedContextActive()) {
+            linkedTargetDescriptor()?.let { descriptor ->
+                return resolveLinkedTarget(mc.theWorld, descriptor)
+            }
+        }
+
         val target = targetEntity ?: return null
         if (!target.isEntityAlive) {
             clearTarget()
@@ -517,6 +532,54 @@ object KillAuraTargeter : Module("KillAuraTargeter", Category.COMBAT, Keyboard.K
     fun getTargetPlayer(): EntityPlayer? = getTargetEntity() as? EntityPlayer
 
     fun getTargetName(): String = targetName
+
+    private fun linkedTargetDescriptor(): LinkedTargetDescriptor? {
+        if (!isLinkBotsModeActive()) {
+            return null
+        }
+
+        val target = targetEntity ?: return null
+        if (!target.isEntityAlive) {
+            clearTarget()
+            return null
+        }
+
+        return LinkedTargetDescriptor(
+            entityId = target.entityId,
+            uuid = (target as? EntityPlayer)?.uniqueID?.toString(),
+            name = target.name
+        )
+    }
+
+    private fun resolveLinkedTarget(world: World?, descriptor: LinkedTargetDescriptor): EntityLivingBase? {
+        val currentWorld = world ?: return null
+
+        val directHit = currentWorld.getEntityByID(descriptor.entityId) as? EntityLivingBase
+        if (matchesLinkedTarget(directHit, descriptor)) {
+            return directHit
+        }
+
+        return currentWorld.loadedEntityList
+            .asSequence()
+            .mapNotNull { it as? EntityLivingBase }
+            .firstOrNull { matchesLinkedTarget(it, descriptor) }
+    }
+
+    private fun matchesLinkedTarget(entity: EntityLivingBase?, descriptor: LinkedTargetDescriptor): Boolean {
+        if (entity == null || !entity.isEntityAlive) {
+            return false
+        }
+
+        if (entity.entityId == descriptor.entityId) {
+            return true
+        }
+
+        if (entity is EntityPlayer && descriptor.uuid != null && entity.uniqueID.toString().equals(descriptor.uuid, ignoreCase = true)) {
+            return true
+        }
+
+        return entity.name.equals(descriptor.name, ignoreCase = true)
+    }
 
     fun shouldBlockOtherTargets(): Boolean = state && isTargetSelected()
 

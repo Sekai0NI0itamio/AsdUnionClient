@@ -27,7 +27,7 @@ public class MixinUtil {
             Thread.currentThread().interrupt();
             cir.setReturnValue(null);
         } catch (ExecutionException e) {
-            if (isKnownChunkArrayError(e)) {
+            if (isKnownClientTaskError(e)) {
                 cir.setReturnValue(null);
                 return;
             }
@@ -40,23 +40,44 @@ public class MixinUtil {
         }
     }
 
-    private static boolean isKnownChunkArrayError(ExecutionException exception) {
+    private static boolean isKnownClientTaskError(ExecutionException exception) {
         Throwable cause = exception.getCause();
 
-        if (!(cause instanceof ArrayIndexOutOfBoundsException)) {
+        if (cause instanceof ArrayIndexOutOfBoundsException) {
+            for (StackTraceElement element : cause.getStackTrace()) {
+                if ("net.minecraft.world.chunk.Chunk".equals(element.getClassName()) && "func_177439_a".equals(element.getMethodName())) {
+                    return true;
+                }
+
+                if ("net.minecraft.client.network.NetHandlerPlayClient".equals(element.getClassName()) && "func_147263_a".equals(element.getMethodName())) {
+                    return true;
+                }
+            }
+
+            return "257".equals(cause.getMessage());
+        }
+
+        if (!(cause instanceof NullPointerException)) {
             return false;
         }
 
+        boolean packetThreadTask = false;
+
         for (StackTraceElement element : cause.getStackTrace()) {
-            if ("net.minecraft.world.chunk.Chunk".equals(element.getClassName()) && "func_177439_a".equals(element.getMethodName())) {
-                return true;
+            if ("net.minecraft.network.PacketThreadUtil$1".equals(element.getClassName()) && "run".equals(element.getMethodName())) {
+                packetThreadTask = true;
             }
 
-            if ("net.minecraft.client.network.NetHandlerPlayClient".equals(element.getClassName()) && "func_147263_a".equals(element.getMethodName())) {
-                return true;
+            if ("net.minecraft.client.network.NetHandlerPlayClient".equals(element.getClassName())
+                    && ("func_147239_a".equals(element.getMethodName()) || "func_147285_a".equals(element.getMethodName()))) {
+                return packetThreadTask;
+            }
+
+            if ("net.minecraft.client.multiplayer.WorldClient".equals(element.getClassName()) && "func_73045_a".equals(element.getMethodName())) {
+                return packetThreadTask;
             }
         }
 
-        return "257".equals(cause.getMessage());
+        return false;
     }
 }

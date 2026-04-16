@@ -7,6 +7,7 @@ package net.asd.union.injection.forge.mixins.gui;
 
 import net.asd.union.event.EventManager;
 import net.asd.union.event.SessionUpdateEvent;
+import net.asd.union.handler.sessiontabs.ClientTabManager;
 import net.asd.union.handler.network.ConnectToRouter;
 import net.asd.union.ui.client.altmanager.GuiAltManager;
 import net.asd.union.ui.client.gui.GuiClientFixes;
@@ -19,10 +20,13 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiMultiplayer;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
+import net.minecraft.client.gui.ServerSelectionList;
+import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.util.Session;
 import org.lwjgl.input.Keyboard;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -34,25 +38,29 @@ import java.util.UUID;
 
 @Mixin(value = GuiMultiplayer.class, priority = 1001)
 public abstract class MixinGuiMultiplayer extends MixinGuiScreen {
+    @Shadow
+    private ServerSelectionList serverListSelector;
+
     private GuiTextField accountTextField;
     private GuiButton connectToRouterButton;
+    private boolean joinGuardActive;
     private int accountBarY = 8;
 
     @Inject(method = "initGui", at = @At("RETURN"))
     private void initGui(CallbackInfo callbackInfo) {
+        int topInset = ClientTabManager.INSTANCE.contentTop((GuiScreen) (Object) this);
         GuiButton button = buttonList.stream().filter(b -> "ViaForge".equals(b.displayString)).findFirst().orElse(null);
 
-        int increase = 0;
-        int yPosition = 8;
+        int yPosition = topInset + 8;
+        int fixesX = 5;
 
         if (button != null) {
-            increase += 105;
-            yPosition = Math.min(button.yPosition, 10);
+            button.yPosition = yPosition;
+            fixesX = button.xPosition + button.width + 5;
         }
 
         accountBarY = yPosition;
 
-        int fixesX = 5 + increase;
         buttonList.add(new GuiButton(997, fixesX, yPosition, 45, 20, "Fixes"));
         buttonList.add(new GuiButton(999, width - 104, yPosition, 98, 20, "Alt Manager"));
 
@@ -77,6 +85,10 @@ public abstract class MixinGuiMultiplayer extends MixinGuiScreen {
 
         connectToRouterButton = new GuiButton(1001, routerButtonX, yPosition, routerButtonWidth, 20, "Router");
         buttonList.add(connectToRouterButton);
+
+        if (serverListSelector != null) {
+            serverListSelector.top = Math.max(serverListSelector.top, accountBarY + 28);
+        }
 
         removePlayMultiplayerButton();
     }
@@ -154,10 +166,15 @@ public abstract class MixinGuiMultiplayer extends MixinGuiScreen {
                 Integer.MIN_VALUE
         );
         accountTextField.drawTextBox();
-
         if (connectToRouterButton != null) {
             connectToRouterButton.displayString = ConnectToRouter.INSTANCE.getEnabled() ? "Router: On" : "Router: Off";
         }
+    }
+
+    @Inject(method = "func_146791_a", at = @At("HEAD"))
+    private void connectToServer(ServerData serverData, CallbackInfo callbackInfo) {
+        joinGuardActive = true;
+        ServerPingController.beginNewRefreshCycle();
     }
 
     @Redirect(
@@ -194,6 +211,11 @@ public abstract class MixinGuiMultiplayer extends MixinGuiScreen {
 
     @Inject(method = "onGuiClosed", at = @At("HEAD"))
     private void onGuiClosed(CallbackInfo callbackInfo) {
+        if (joinGuardActive) {
+            joinGuardActive = false;
+            return;
+        }
+
         ServerPingController.beginNewRefreshCycle();
     }
 
