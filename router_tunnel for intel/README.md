@@ -7,9 +7,10 @@ A lightweight macOS TCP proxy that routes Minecraft traffic through your **physi
 1. Uses the macOS-specific `IP_BOUND_IF` socket option to force outbound connections through a specific interface (e.g. `en0`), regardless of VPN routing rules
 2. Listens on `127.0.0.1:25560` and acts as a transparent Minecraft proxy
 3. Optional HTTP/HTTPS proxy on `127.0.0.1:25561` for browser routing
-3. Reads the Minecraft handshake packet to find the real server address
-4. Connects to the real server via the physical interface
-5. Relays all traffic bidirectionally
+4. Optional SOCKS5 proxy on `127.0.0.1:1080` for apps like Tencent Video
+5. Reads the Minecraft handshake packet to find the real server address
+6. Connects to the real server via the physical interface
+7. Relays all traffic bidirectionally
 
 The FDPClient mod detects the tunnel, and sends connections through it automatically.
 
@@ -40,6 +41,15 @@ clang -O2 -Wall -Wextra -o router_tunnel router_tunnel.c
 
 # Disable the HTTP proxy listener
 ./router_tunnel --no-http-proxy
+
+# Enable the SOCKS5 proxy on a custom port (default 1080)
+./router_tunnel --socks5-proxy 1080
+
+# Enable SOCKS5 with username/password auth
+./router_tunnel --socks5-proxy 1080 --socks5-user myuser --socks5-pass mypass
+
+# Disable the SOCKS5 proxy listener
+./router_tunnel --no-socks5-proxy
 
 # Force a specific interface
 ./router_tunnel --interface en0

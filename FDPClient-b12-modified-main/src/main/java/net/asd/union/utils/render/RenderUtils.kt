@@ -55,6 +55,7 @@ import org.lwjgl.util.glu.Cylinder
 import java.awt.Color
 import java.awt.Graphics2D
 import java.awt.image.BufferedImage
+import java.nio.Buffer
 import java.nio.ByteBuffer
 import kotlin.math.*
 
@@ -2407,7 +2408,7 @@ object RenderUtils : MinecraftInstance {
             buffer.put(((pixel shr 24) and 0xFF).toByte())
         }
 
-        buffer.flip()
+        (buffer as Buffer).flip()
 
         val textureID = glGenTextures()
 

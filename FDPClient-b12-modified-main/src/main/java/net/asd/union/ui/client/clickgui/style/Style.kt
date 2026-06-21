@@ -49,7 +49,7 @@ abstract class Style : MinecraftInstance {
 
     protected fun round(v: Float): Float {
         var bigDecimal = BigDecimal(v.toString())
-        bigDecimal = bigDecimal.setScale(2, 4)
+        bigDecimal = bigDecimal.setScale(3, 4)
         return bigDecimal.toFloat()
     }
 

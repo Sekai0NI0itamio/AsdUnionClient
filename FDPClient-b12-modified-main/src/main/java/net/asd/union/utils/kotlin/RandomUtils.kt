@@ -159,24 +159,177 @@ object RandomUtils {
         maxLength: Int = GuiClientConfiguration.altsLength,
         raw: Boolean = GuiClientConfiguration.unformattedAlts
     ): String {
-        return randomUsername(GuiClientConfiguration.altNameMode, customPrefix, maxLength, raw)
-    }
-
-    fun randomUsername(
-        mode: AltNameMode,
-        customPrefix: String,
-        maxLength: Int,
-        raw: Boolean
-    ): String {
         val prefixPart = if (customPrefix.isNotEmpty()) "${customPrefix}_" else ""
         if (prefixPart.length >= maxLength) return customPrefix
+        return randomRealisticUsername(prefixPart, maxLength)
+    }
 
-        return when (mode) {
-            AltNameMode.MC_MINECRAFT -> randomMcMinecraftUsername(prefixPart, maxLength)
-            AltNameMode.STYLIZED -> randomStylisedUsername(prefixPart, maxLength, raw)
-            AltNameMode.LEGACY -> randomLegacyUsername(prefixPart, maxLength)
+    /**
+     * Generates a realistic Minecraft username based on patterns observed on real servers.
+     * Patterns: word+numbers, name+suffix, two words concatenated, leet speak, random syllables.
+     * No underscores. 30% capitalized, 70% all lowercase. Numbers appended frequently.
+     */
+    private fun randomRealisticUsername(prefixPart: String, maxLength: Int): String {
+        val available = maxLength - prefixPart.length
+        if (available < 3) return prefixPart + randomString(available.coerceAtLeast(0))
+
+        val pattern = Random.nextInt(100)
+        val name = when {
+            // 30% - Word + optional numbers (e.g., waporix, Samourail, FeriFree)
+            pattern < 30 -> generateWordName(available)
+            // 25% - Name + gaming suffix (e.g., HarshithPlayzz, JasperPro, Gokumc)
+            pattern < 55 -> generateNameWithSuffix(available)
+            // 20% - Two words concatenated (e.g., SpicyPoop, RogueWarrior, ChasexX)
+            pattern < 75 -> generateTwoWordName(available)
+            // 15% - Leet speak name (e.g., Reflect1ion1ist, Qwersidd222)
+            pattern < 90 -> generateLeetName(available)
+            // 10% - Random syllable combo (e.g., lvoo6e, waporix)
+            else -> generateSyllableName(available)
+        }
+
+        // 30% chance: keep proper capitalization; 70%: force all lowercase
+        val finalName = if (Random.nextInt(100) < 30) name else name.lowercase()
+        return prefixPart + finalName.take(maxLength - prefixPart.length)
+    }
+
+    private fun generateWordName(maxLen: Int): String {
+        val word = REALISTIC_WORDS.filter { it.length <= maxLen - 2 }.randomOrNull()
+            ?: return randomString(maxLen.coerceAtMost(8))
+        val remaining = maxLen - word.length
+        return if (remaining > 0 && Random.nextInt(100) < 70) {
+            word + randomNumber((1..minOf(remaining, 3)).random())
+        } else {
+            word
         }
     }
+
+    private fun generateNameWithSuffix(maxLen: Int): String {
+        val suffix = REALISTIC_SUFFIXES.random()
+        val namePool = REALISTIC_NAMES.filter { it.length + suffix.length <= maxLen }
+        if (namePool.isEmpty()) return generateWordName(maxLen)
+        val name = namePool.random()
+        val base = name + suffix
+        val remaining = maxLen - base.length
+        return if (remaining > 0 && Random.nextInt(100) < 50) {
+            base + randomNumber((1..minOf(remaining, 3)).random())
+        } else {
+            base
+        }
+    }
+
+    private fun generateTwoWordName(maxLen: Int): String {
+        val word1Pool = REALISTIC_WORDS.filter { it.length + 1 <= maxLen }
+        if (word1Pool.isEmpty()) return generateWordName(maxLen)
+        val word1 = word1Pool.random()
+
+        val word2Pool = REALISTIC_WORDS.filter {
+            word1.length + it.length <= maxLen
+        }
+        if (word2Pool.isEmpty()) return word1
+
+        val word2 = word2Pool.random()
+        val base = word1 + word2
+
+        val remaining = maxLen - base.length
+        return if (remaining > 0 && Random.nextInt(100) < 55) {
+            base + randomNumber((1..minOf(remaining, 3)).random())
+        } else {
+            base
+        }
+    }
+
+    private fun generateLeetName(maxLen: Int): String {
+        val word = REALISTIC_WORDS.filter { it.length <= maxLen - 1 }.randomOrNull()
+            ?: return randomString(maxLen.coerceAtMost(8))
+        val leetWord = leetRandomly(word)
+        val remaining = maxLen - leetWord.length
+        return if (remaining > 0 && Random.nextInt(100) < 75) {
+            leetWord + randomNumber((1..minOf(remaining, 3)).random())
+        } else {
+            leetWord
+        }
+    }
+
+    private fun generateSyllableName(maxLen: Int): String {
+        val syllableCount = (2..3).random()
+        val sb = StringBuilder()
+        repeat(syllableCount) {
+            if (sb.length < maxLen) {
+                sb.append(REALISTIC_SYLLABLES.random())
+            }
+        }
+        val base = sb.toString().take(maxLen)
+        val remaining = maxLen - base.length
+        return if (remaining > 0 && Random.nextInt(100) < 60) {
+            base + randomNumber((1..minOf(remaining, 3)).random())
+        } else {
+            base
+        }
+    }
+
+    // Realistic MC name pools based on observed server player names
+    private val REALISTIC_WORDS = arrayOf(
+        // Short common gaming words
+        "Dark", "Fire", "Ice", "Sky", "Wolf", "Fox", "Shadow", "Storm", "Blaze",
+        "Fang", "Claw", "Hawk", "Raven", "Ghost", "Frost", "Flame", "Spark",
+        "Viper", "Cobra", "Titan", "Ace", "Neo", "Zen", "Rex", "Zane",
+        "Kai", "Ray", "Max", "Leo", "Ash", "Rex", "Jax", "Knox",
+        "Rogue", "Alpha", "Omega", "Nova", "Echo", "Apex", "Core", "Volt",
+        "Chaos", "Fury", "Rage", "Doom", "Wrath", "Bane", "Void", "Null",
+        "Sniper", "Hunter", "Slayer", "Knight", "Reaper", "Phantom", "Demon",
+        "Dragon", "Beast", "King", "Lord", "Chief", "Boss", "Hero", "Star",
+        "Moon", "Sun", "Solar", "Lunar", "Cosmic", "Astro", "Pixel", "Cyber",
+        "Toxic", "Lethal", "Fatal", "Deadly", "Swift", "Quick", "Rapid", "Flash",
+        "Iron", "Steel", "Bronze", "Gold", "Silver", "Crystal", "Diamond",
+        "Spicy", "Salty", "Sour", "Sweet", "Bitter", "Savage", "Feral",
+        "Mystic", "Magic", "Arcane", "Wizard", "Witch", "Cursed", "Blessed",
+        "Ninja", "Samurai", "Warrior", "Fighter", "Brute", "Tank", "Scout",
+        "Pro", "Elite", "Epic", "God", "Legend", "Myth", "Ultra", "Mega",
+        "Super", "Hyper", "Turbo", "Mega", "Giga", "Tera", "Power", "Force",
+        "Chase", "Chase", "Blake", "Cole", "Troy", "Dane", "Luke", "Miles",
+        "Seth", "Jake", "Finn", "Milo", "Oscar", "Hugo", "Omar", "Adrian",
+        "Felix", "Ivan", "Lars", "Otto", "Ravi", "Sanjay", "Arjun", "Raj",
+        "Ali", "Omar", "Zain", "Amir", "Hassan", "Ibrahim", "Yusuf", "Khalid",
+        "Chen", "Wei", "Jun", "Ming", "Hiro", "Kenji", "Ryu", "Takeshi",
+        "Pavel", "Viktor", "Dmitri", "Alexei", "Nikolai", "Sergei", "Andrei",
+        "Liam", "Noah", "Ethan", "Mason", "Logan", "Aiden", "Caleb", "Owen",
+        "Ava", "Mia", "Luna", "Zoe", "Lily", "Ivy", "Ruby", "Jade",
+        "Sam", "Ben", "Dan", "Joe", "Tom", "Max", "Leo", "Jay",
+        "Free", "Cool", "Wild", "Mad", "Big", "Red", "Blue", "Green",
+        "Poop", "Noob", "Lava", "Aqua", "Wind", "Rock", "Dust", "Mud"
+    )
+
+    private val REALISTIC_NAMES = arrayOf(
+        // Common first names seen on MC servers (especially South Asian, which are very common)
+        "Harshith", "Jaswanth", "Goku", "Ravi", "Arjun", "Sanjay", "Rajesh",
+        "Amit", "Vikram", "Siddharth", "Pranav", "Rohan", "Aditya", "Karan",
+        "Feri", "Chase", "Sale", "Sam", "Ben", "Alex", "Max", "Leo",
+        "Ali", "Omar", "Zain", "Amir", "Hassan", "Ibrahim", "Yusuf",
+        "Chen", "Wei", "Jun", "Ming", "Hiro", "Kenji",
+        "Liam", "Noah", "Ethan", "Mason", "Logan", "Aiden", "Caleb",
+        "Ava", "Mia", "Luna", "Zoe", "Lily", "Ruby", "Jade",
+        "Muhib", "Thala", "Hicham", "Qwer", "Wapor", "Jasper",
+        "Bhondu", "Reflect", "Rogue", "Warrior"
+    )
+
+    private val REALISTIC_SUFFIXES = arrayOf(
+        // Gaming suffixes commonly seen on MC servers (no underscores)
+        "Playzz", "Pro", "MC", "PvP", "GG", "YT", "TV", "OG", "VIP",
+        "X", "x", "Z", "z", "HD", "Boss", "King", "God", "Ace",
+        "Boy", "Girl", "Man", "Kid", "Dude", "Bro", "Gamer",
+        "Craft", "Play", "Mine", "Build", "Block", "Cube",
+        "j", "xX", "mc", "47", "69"
+    )
+
+    private val REALISTIC_SYLLABLES = arrayOf(
+        // Syllables for random-sounding names like waporix, lvoo6e
+        "wa", "po", "ri", "xa", "ze", "lu", "vo", "ne", "ky", "mu",
+        "da", "fe", "go", "ha", "ji", "ka", "lo", "mi", "na", "pi",
+        "ra", "sa", "ta", "vi", "wu", "ya", "zi", "bu", "ce", "de",
+        "el", "fi", "gu", "hy", "ix", "ju", "ke", "la", "mo", "nu",
+        "ox", "py", "qu", "ro", "si", "tu", "um", "va", "wi", "xy",
+        "yo", "zu", "al", "en", "or", "ul", "ar", "er", "ir", "ur"
+    )
 
     //Randomly converts "leetable" characters, skips first and last.
     private fun leetRandomly(string: String) = string.mapIndexed { i, char ->
@@ -3112,7 +3265,7 @@ object RandomUtils {
         "Zorilla"
     )
 
-    private const val FILLER_CHARS = "0123456789_"
+    private const val FILLER_CHARS = "0123456789"
     private val leetMap = mapOf(
         "a" to "4",
         "b" to "8",

@@ -15,6 +15,7 @@ import net.asd.union.features.module.modules.client.Animations;
 import net.asd.union.features.module.modules.client.Rotations;
 import net.asd.union.features.module.modules.combat.ProjectileVelocity;
 import net.asd.union.features.module.modules.combat.RodVelocity;
+import net.asd.union.handler.sessiontabs.TabSimulationThread;
 import net.asd.union.utils.rotation.RotationSettings;
 import net.asd.union.features.module.modules.player.scaffolds.Scaffold;
 import net.asd.union.utils.movement.MovementUtils;
@@ -195,6 +196,11 @@ public abstract class MixinEntityLivingBase extends MixinEntity {
         Entity attacker = source.getEntity();
         Entity directSource = source.getSourceOfDamage();
 
+        // On simulation threads, skip module logic — modules are for the foreground player only
+        if (Thread.currentThread() instanceof TabSimulationThread) {
+            return;
+        }
+
         if ((Object) this != mc.thePlayer) {
             return;
         }
@@ -205,6 +211,11 @@ public abstract class MixinEntityLivingBase extends MixinEntity {
 
     @Inject(method = "knockBack", at = @At("HEAD"), cancellable = true)
     private void fdp$directKnockBack(Entity attacker, float strength, double xRatio, double zRatio, CallbackInfo ci) {
+        // On simulation threads, skip module logic
+        if (Thread.currentThread() instanceof TabSimulationThread) {
+            return;
+        }
+
         if ((Object) this != mc.thePlayer) {
             return;
         }

@@ -23,6 +23,9 @@ import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.item.EntityItemFrame;
 import net.minecraft.potion.Potion;
 import net.minecraft.util.*;
+
+import java.util.ArrayList;
+import java.util.List;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
@@ -82,9 +85,163 @@ public abstract class MixinEntityRenderer {
         this.thirdPersonDistance = thirdPersonDistance;
     }
 
+    /**
+     * Guard updateRenderer against NPE when mc state is cleared during tab switches.
+     * updateRenderer accesses mc.theWorld.getLightBrightness() and
+     * mc.getRenderViewEntity() unconditionally, which NPEs when theWorld
+     * or thePlayer is null after activating a disconnected tab.
+     */
+    @Inject(method = "updateRenderer", at = @At("HEAD"), cancellable = true)
+    private void fdp$guardUpdateRenderer(CallbackInfo ci) {
+        if (mc.theWorld == null || mc.thePlayer == null) {
+            ci.cancel();
+        }
+    }
+
     @Inject(method = "renderWorldPass", at = @At(value = "FIELD", target = "Lnet/minecraft/client/renderer/EntityRenderer;renderHand:Z", shift = At.Shift.BEFORE))
     private void renderWorldPass(int pass, float partialTicks, long finishTimeNano, CallbackInfo callbackInfo) {
         EventManager.INSTANCE.call(new Render3DEvent(partialTicks));
+    }
+
+    /**
+     * Guard against rendering with an inconsistent world state during tab switches.
+     * If mc.theWorld doesn't match the RenderGlobal's world, skip rendering to
+     * prevent sky/fog bleeding between tabs.
+     */
+    @Inject(method = "renderWorldPass", at = @At("HEAD"), cancellable = true)
+    private void fdp$guardRenderWorldConsistency(int pass, float partialTicks, long finishTimeNano, CallbackInfo ci) {
+        if (mc.theWorld != null && mc.renderGlobal != null) {
+            // During tab switches, the RenderGlobal's world and mc.theWorld can
+            // briefly be out of sync. Skip rendering in that case to prevent
+            // sky/fog color bleeding between tabs.
+            // Access theWorld field directly via reflection since we can't call
+            // non-private static methods from other mixins.
+            try {
+                java.lang.reflect.Field theWorldField = mc.renderGlobal.getClass().getDeclaredField("field_72769_h");
+                theWorldField.setAccessible(true);
+                net.minecraft.client.multiplayer.WorldClient renderGlobalWorld =
+                    (net.minecraft.client.multiplayer.WorldClient) theWorldField.get(mc.renderGlobal);
+                if (renderGlobalWorld != mc.theWorld) {
+                    ci.cancel();
+                }
+            } catch (Exception ignored) {
+                // If reflection fails, don't block rendering
+            }
+        }
+    }
+
+    /**
+     * Redirects the vanilla getEntitiesInAABBexcluding call in getMouseOver
+     * to use a NPE-safe predicate. The vanilla lambda at
+     * EntityRenderer.java:428 calls p_apply_1_.canBeCollidedWith() which
+     * can NPE if a mod overrides the method and the entity's world has
+     * been torn down mid-iteration (e.g. during background tab disconnect).
+     *
+     * Wrapping the predicate in a try-catch prevents the entire
+     * updateCameraAndRender call from crashing the game.
+     */
+    @Redirect(
+        method = "getMouseOver",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/client/multiplayer/WorldClient;getEntitiesInAABBexcluding(Lnet/minecraft/entity/Entity;Lnet/minecraft/util/AxisAlignedBB;Lcom/google/common/base/Predicate;)Ljava/util/List;"
+        )
+    )
+    private List<Entity> redirectGetEntitiesInAABBExcluding(net.minecraft.client.multiplayer.WorldClient world, Entity exclude, AxisAlignedBB box, com.google.common.base.Predicate<? super Entity> predicate) {
+        try {
+            return world.getEntitiesInAABBexcluding(exclude, box, entity -> {
+                try {
+                    return predicate.apply(entity);
+                } catch (Throwable t) {
+                    return false;
+                }
+            });
+        } catch (Throwable t) {
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * Redirects the getEntityBoundingBox() call in getMouseOver (line 424)
+     * to return a safe bounding box if the entity's state is corrupted.
+     * This prevents NPEs when the player's worldObj has been torn down
+     * mid-frame (e.g. during a background tab disconnect).
+     */
+    @Redirect(
+        method = "getMouseOver",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/entity/Entity;getEntityBoundingBox()Lnet/minecraft/util/AxisAlignedBB;"
+        )
+    )
+    private AxisAlignedBB redirectGetEntityBoundingBox(Entity entity) {
+        try {
+            AxisAlignedBB bb = entity.getEntityBoundingBox();
+            if (bb == null) {
+                return new AxisAlignedBB(0, 0, 0, 0, 0, 0);
+            }
+            return bb;
+        } catch (Throwable t) {
+            return new AxisAlignedBB(0, 0, 0, 0, 0, 0);
+        }
+    }
+
+    /**
+     * Guard against NPE in updateCameraAndRender when the render state is
+     * corrupted during tab switches. This can happen when:
+     * - The active tab is disconnected and renderViewEntity is null
+     * - The world is null but thePlayer is set (partial state)
+     * - The player is null but the world is set (partial state)
+     * - The player controller is null (post-disconnect transition)
+     *
+     * On the main menu, all these fields are legitimately null and the
+     * EntityRenderer handles this correctly. We only cancel when we detect
+     * an inconsistent state that would cause an NPE.
+     */
+    @Inject(method = "updateCameraAndRender", at = @At("HEAD"), cancellable = true)
+    private void fdp$guardNullRenderView(float partialTicks, long finishTimeNano, CallbackInfo ci) {
+        // Inconsistent state: thePlayer is set but world/renderViewEntity is null.
+        // This happens during tab switches when the player object exists but
+        // the world hasn't been loaded yet.
+        if (mc.thePlayer != null && (mc.getRenderViewEntity() == null || mc.theWorld == null)) {
+            ci.cancel();
+            return;
+        }
+        // Inconsistent state: theWorld is set but thePlayer/renderViewEntity is null.
+        // This shouldn't happen in normal gameplay — if there's a world, there must
+        // be a player to render.
+        if (mc.theWorld != null && (mc.thePlayer == null || mc.getRenderViewEntity() == null)) {
+            ci.cancel();
+            return;
+        }
+        // Inconsistent state: thePlayer and theWorld are set, but
+        // playerController is null. The EntityRenderer accesses
+        // playerController.getBlockReachDistance() / extendedReach() inside
+        // getMouseOver. If the controller is null, those will NPE.
+        if (mc.thePlayer != null && mc.theWorld != null && mc.playerController == null) {
+            ci.cancel();
+            return;
+        }
+        // When theWorld is null and thePlayer is null, the EntityRenderer
+        // correctly handles this case — it skips world rendering and renders
+        // the currentScreen (if any). This is the normal main menu / connecting
+        // screen state. We should NOT cancel in this case because the screen
+        // needs to be rendered.
+        //
+        // However, there's a problem: updateCameraAndRender also calls
+        // mc.thePlayer.setAngles() at line 1083/1089 when inGameHasFocus is
+        // true. If thePlayer is null, this NPEs. But this only happens when
+        // inGameHasFocus is true, which means the mouse is grabbed. When we
+        // display a screen, the mouse is ungrabbed and inGameHasFocus is false,
+        // so the setAngles call is skipped. So this is safe as long as we have
+        // a screen displayed.
+        //
+        // The only dangerous case is when thePlayer is null and we DON'T have
+        // a screen (inGameHasFocus could be true from a previous state). Cancel
+        // in that case.
+        if (mc.thePlayer == null && mc.theWorld == null && mc.currentScreen == null) {
+            ci.cancel();
+        }
     }
 
     @Inject(method = "hurtCameraEffect", at = @At("HEAD"), cancellable = true)
@@ -105,8 +262,11 @@ public abstract class MixinEntityRenderer {
         return eight;
     }
 
-    @Inject(at = @At("HEAD"), method = "updateCameraAndRender")
+    @Inject(at = @At("HEAD"), method = "updateCameraAndRender", cancellable = true)
     private void injectCameraModifications(float p_updateCameraAndRender_1_, long p_updateCameraAndRender_2_, CallbackInfo ci) {
+        if (mc.theWorld == null || mc.thePlayer == null || mc.getRenderViewEntity() == null) {
+            return;
+        }
         FreeCam.INSTANCE.useModifiedPosition();
     }
 
@@ -127,16 +287,28 @@ public abstract class MixinEntityRenderer {
     @Inject(method = "getMouseOver", at = @At("HEAD"), cancellable = true)
     private void getMouseOver(float p_getMouseOver_1_, CallbackInfo ci) {
         Entity entity = mc.getRenderViewEntity();
+        if (entity != null && (entity.isDead || entity.worldObj != mc.theWorld)) {
+            entity = mc.thePlayer;
+        }
+
+        if (entity == null || mc.theWorld == null || mc.thePlayer == null || mc.playerController == null) {
+            mc.pointedEntity = null;
+            mc.objectMouseOver = null;
+            ci.cancel();
+            return;
+        }
+
         if (entity != null && mc.theWorld != null) {
+            final Entity raycastEntity = entity;
             mc.mcProfiler.startSection("pick");
             mc.pointedEntity = null;
             double d0 = mc.playerController.getBlockReachDistance();
-            Vec3 vec3 = entity.getPositionEyes(p_getMouseOver_1_);
+            Vec3 vec3 = raycastEntity.getPositionEyes(p_getMouseOver_1_);
             Rotation rotation = new Rotation(mc.thePlayer.rotationYaw, mc.thePlayer.rotationPitch);
             Vec3 vec31 = RotationUtils.INSTANCE.getVectorForRotation(RotationUtils.INSTANCE.getCurrentRotation() != null && OverrideRaycast.INSTANCE.shouldOverride() ? RotationUtils.INSTANCE.getCurrentRotation() : rotation);
             double p_rayTrace_1_ = d0;
             Vec3 vec32 = vec3.addVector(vec31.xCoord * p_rayTrace_1_, vec31.yCoord * p_rayTrace_1_, vec31.zCoord * p_rayTrace_1_);
-            mc.objectMouseOver = entity.worldObj.rayTraceBlocks(vec3, vec32, false, false, true);
+            mc.objectMouseOver = raycastEntity.worldObj.rayTraceBlocks(vec3, vec32, false, false, true);
             double d1 = d0;
             boolean flag = false;
             if (mc.playerController.extendedReach()) {
@@ -152,10 +324,22 @@ public abstract class MixinEntityRenderer {
 
             pointedEntity = null;
             Vec3 vec33 = null;
-            List<Entity> list = mc.theWorld.getEntities(Entity.class, Predicates.and(EntitySelectors.NOT_SPECTATING, p_apply_1_ -> p_apply_1_ != null && p_apply_1_.canBeCollidedWith() && p_apply_1_ != entity));
+            // Defensive predicate: catch any NPE thrown by entity-specific
+            // canBeCollidedWith() overrides. Some mods override this method
+            // and NPE when the entity's world has been torn down mid-iteration
+            // (e.g. during background tab disconnects). The vanilla code at
+            // EntityRenderer.java:428 NPEs in the same situation.
+            List<Entity> list = mc.theWorld.getEntities(Entity.class, Predicates.and(EntitySelectors.NOT_SPECTATING, p_apply_1_ -> {
+                try {
+                    return p_apply_1_ != null && p_apply_1_.canBeCollidedWith() && p_apply_1_ != raycastEntity;
+                } catch (Throwable t) {
+                    return false;
+                }
+            }));
             double d2 = d1;
 
             for (Entity entity1 : list) {
+                if (entity1 == null || entity1.isDead) continue;
                 float f1 = entity1.getCollisionBorderSize();
 
                 final ArrayList<AxisAlignedBB> boxes = new ArrayList<>();
@@ -182,7 +366,7 @@ public abstract class MixinEntityRenderer {
                     } else if (movingobjectposition != null) {
                         double d3 = vec3.distanceTo(movingobjectposition.hitVec);
                         if (d3 < d2 || d2 == 0) {
-                            if (entity1 == entity.ridingEntity && !entity.canRiderInteract()) {
+                            if (entity1 == raycastEntity.ridingEntity && !raycastEntity.canRiderInteract()) {
                                 if (d2 == 0) {
                                     pointedEntity = entity1;
                                     vec33 = movingobjectposition.hitVec;
@@ -197,12 +381,16 @@ public abstract class MixinEntityRenderer {
                 }
             }
 
-            if (pointedEntity != null && flag && vec3.distanceTo(vec33) > 3) {
+            if (pointedEntity != null && vec33 == null) {
                 pointedEntity = null;
-                mc.objectMouseOver = new MovingObjectPosition(MovingObjectPosition.MovingObjectType.MISS, Objects.requireNonNull(vec33), null, new BlockPos(vec33));
             }
 
-            if (pointedEntity != null && (d2 < d1 || mc.objectMouseOver == null)) {
+            if (pointedEntity != null && vec33 != null && flag && vec3.distanceTo(vec33) > 3) {
+                pointedEntity = null;
+                mc.objectMouseOver = new MovingObjectPosition(MovingObjectPosition.MovingObjectType.MISS, vec33, null, new BlockPos(vec33));
+            }
+
+            if (pointedEntity != null && vec33 != null && (d2 < d1 || mc.objectMouseOver == null)) {
                 mc.objectMouseOver = new MovingObjectPosition(pointedEntity, vec33);
                 if (pointedEntity instanceof EntityLivingBase || pointedEntity instanceof EntityItemFrame) {
                     mc.pointedEntity = pointedEntity;

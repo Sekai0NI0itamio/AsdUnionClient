@@ -15,6 +15,8 @@ import net.asd.union.ui.client.altmanager.GuiAltManager
 import net.asd.union.ui.font.AWTFontRenderer.Companion.assumeNonVolatile
 import net.asd.union.ui.font.Fonts
 import net.asd.union.utils.kotlin.RandomUtils.randomUsername
+import net.asd.union.utils.kotlin.SharedScopes
+import net.asd.union.utils.login.ProperOfflineUtils
 import net.asd.union.utils.render.RenderUtils.drawBloom
 import net.asd.union.utils.ui.AbstractScreen
 import net.minecraft.client.gui.GuiButton
@@ -23,10 +25,12 @@ import net.minecraft.util.Session
 import org.lwjgl.input.Keyboard
 import java.awt.Color
 import java.io.IOException
+import kotlinx.coroutines.launch
 
 class GuiLoginIntoAccount(private val prevGui: GuiAltManager, val directLogin: Boolean = false) : AbstractScreen() {
 
     private lateinit var addButton: GuiButton
+    private lateinit var properOfflineButton: GuiButton
     private lateinit var username: GuiTextField
 
     private var status = ""
@@ -43,6 +47,9 @@ class GuiLoginIntoAccount(private val prevGui: GuiAltManager, val directLogin: B
         // Login via Microsoft account
         +GuiButton(3, width / 2 - 100, height / 2, "${if (directLogin) "Login to" else "Add"} a Microsoft account")
 
+        // Proper Offline Accounts toggle
+        properOfflineButton = +GuiButton(4, width / 2 - 100, height / 2 - 30, properOfflineButtonText())
+
         // Back button
         +GuiButton(0, width / 2 - 100, height / 2 + 30, "Back")
 
@@ -50,6 +57,9 @@ class GuiLoginIntoAccount(private val prevGui: GuiAltManager, val directLogin: B
         username.isFocused = false
         username.maxStringLength = 16
     }
+
+    private fun properOfflineButtonText() =
+        "Proper Offline: ${if (accountsConfig.properOfflineAccounts) "§aON" else "§cOFF"}"
 
     override fun drawScreen(mouseX: Int, mouseY: Int, partialTicks: Float) {
         assumeNonVolatile {
@@ -74,6 +84,11 @@ class GuiLoginIntoAccount(private val prevGui: GuiAltManager, val directLogin: B
 
             if (username.text.isEmpty() && !username.isFocused)
                 Fonts.font40.drawCenteredStringWithShadow("§7Username", width / 2 - 72f, height / 2 - 84f, 0xffffff)
+
+            // Keep the toggle button label in sync
+            if (::properOfflineButton.isInitialized) {
+                properOfflineButton.displayString = properOfflineButtonText()
+            }
         }
 
         drawBloom(mouseX - 5, mouseY - 5, 10, 10, 16, Color(guiColor))
@@ -108,6 +123,13 @@ class GuiLoginIntoAccount(private val prevGui: GuiAltManager, val directLogin: B
                         mc.displayGuiScreen(prevGui)
                     })
                 )
+            }
+
+            4 -> {
+                // Toggle Proper Offline Accounts
+                accountsConfig.properOfflineAccounts = !accountsConfig.properOfflineAccounts
+                saveConfig(accountsConfig)
+                properOfflineButton.displayString = properOfflineButtonText()
             }
         }
     }
@@ -169,21 +191,57 @@ class GuiLoginIntoAccount(private val prevGui: GuiAltManager, val directLogin: B
 
         addButton.enabled = false
 
-        if (directLogin) {
-            // Login directly into account
-            mc.session = Session(
-                crackedAccount.session.username, crackedAccount.session.uuid,
-                crackedAccount.session.token, crackedAccount.session.type
-            )
-            call(SessionUpdateEvent)
-            status = "§aLogged into §f§l${mc.session.username}§a."
-        } else {
-            accountsConfig.addAccount(crackedAccount)
-            saveConfig(accountsConfig)
-            status = "§aThe account has been added."
-        }
+        if (accountsConfig.properOfflineAccounts) {
+            // Resolve real Mojang UUID on a background thread
+            status = "§7Looking up Mojang UUID..."
+            SharedScopes.IO.launch {
+                val result = ProperOfflineUtils.applyProperOfflineSession(usernameText)
 
-        prevGui.status = status
-        mc.displayGuiScreen(prevGui)
+                mc.addScheduledTask {
+                    when (result) {
+                        ProperOfflineUtils.ApplyResult.SUCCESS -> {
+                            status = "§aLogged in with proper Mojang UUID for §f§l$usernameText§a."
+                        }
+                        ProperOfflineUtils.ApplyResult.NO_MOJANG_ACCOUNT -> {
+                            // No real Mojang account — fall back to standard offline session
+                            applyStandardOfflineSession(crackedAccount)
+                            status = "§eNo Mojang account found for §f§l$usernameText§e. Using offline UUID."
+                        }
+                        ProperOfflineUtils.ApplyResult.LOOKUP_FAILED -> {
+                            applyStandardOfflineSession(crackedAccount)
+                            status = "§cUUID lookup failed. Using offline UUID."
+                        }
+                    }
+
+                    if (!directLogin) {
+                        accountsConfig.addAccount(crackedAccount)
+                        saveConfig(accountsConfig)
+                    }
+
+                    prevGui.status = status
+                    mc.displayGuiScreen(prevGui)
+                }
+            }
+        } else {
+            if (directLogin) {
+                applyStandardOfflineSession(crackedAccount)
+                status = "§aLogged into §f§l${mc.session.username}§a."
+            } else {
+                accountsConfig.addAccount(crackedAccount)
+                saveConfig(accountsConfig)
+                status = "§aThe account has been added."
+            }
+
+            prevGui.status = status
+            mc.displayGuiScreen(prevGui)
+        }
+    }
+
+    private fun applyStandardOfflineSession(crackedAccount: CrackedAccount) {
+        mc.session = Session(
+            crackedAccount.session.username, crackedAccount.session.uuid,
+            crackedAccount.session.token, crackedAccount.session.type
+        )
+        call(SessionUpdateEvent)
     }
 }

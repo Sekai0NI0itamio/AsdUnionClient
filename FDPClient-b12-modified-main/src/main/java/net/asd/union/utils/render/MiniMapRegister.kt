@@ -8,6 +8,9 @@ package net.asd.union.utils.render
 import net.asd.union.event.Listenable
 import net.asd.union.event.Render2DEvent
 import net.asd.union.event.handler
+import net.asd.union.handler.sessiontabs.ClientTabManager
+import net.asd.union.handler.sessiontabs.SessionRuntimeScope
+import net.asd.union.handler.sessiontabs.TabSimulationThread
 import net.asd.union.utils.client.MinecraftInstance
 import net.minecraft.client.renderer.texture.DynamicTexture
 import net.minecraft.util.BlockPos
@@ -18,20 +21,48 @@ import kotlin.concurrent.write
 
 object MiniMapRegister : MinecraftInstance, Listenable {
 
-    private val chunkTextureMap = HashMap<ChunkLocation, MiniMapTexture>(256)
-    private val queuedChunkUpdates = HashSet<Chunk>(256)
-    private val queuedChunkDeletions = HashSet<ChunkLocation>(256)
-    private var deleteAllChunks = false
+    private const val MAX_CHUNK_UPDATES_PER_FRAME = 48
+    private const val MAX_CHUNK_DELETIONS_PER_FRAME = 128
+
+    private data class ContextState(
+        val chunkTextureMap: MutableMap<ChunkLocation, MiniMapTexture> = HashMap(256),
+        val queuedChunkUpdates: MutableSet<Chunk> = LinkedHashSet(256),
+        val queuedChunkDeletions: MutableSet<ChunkLocation> = LinkedHashSet(256),
+        var deleteAllChunks: Boolean = false
+    )
+
+    private val states = HashMap<String, ContextState>()
 
     private val lock = ReentrantReadWriteLock()
 
+    private fun currentContextKey(): String {
+        return SessionRuntimeScope.currentRuntime()?.tabId
+            ?: (Thread.currentThread() as? TabSimulationThread)?.runtime?.tabId
+            ?: ClientTabManager.currentTabId()
+            ?: "__global__"
+    }
+
+    private fun currentState(): ContextState {
+        return states.getOrPut(currentContextKey(), ::ContextState)
+    }
+
+    private fun disposeState(state: ContextState) {
+        state.chunkTextureMap.values.forEach(MiniMapTexture::delete)
+        state.chunkTextureMap.clear()
+        state.queuedChunkUpdates.clear()
+        state.queuedChunkDeletions.clear()
+        state.deleteAllChunks = false
+    }
+
     fun updateChunk(chunk: Chunk) {
         lock.write {
-            queuedChunkUpdates += chunk
+            currentState().queuedChunkUpdates += chunk
         }
     }
 
-    fun getChunkTextureAt(x: Int, z: Int) = lock.read { chunkTextureMap[ChunkLocation(x, z)] }
+    fun getChunkTextureAt(x: Int, z: Int) = lock.read {
+        states[currentContextKey()]?.chunkTextureMap?.get(ChunkLocation(x, z))
+    }
 
     val onRender2D = handler<Render2DEvent> {
         updateChunks()
@@ -39,38 +70,66 @@ object MiniMapRegister : MinecraftInstance, Listenable {
 
     private fun updateChunks() {
         lock.write {
-            if (deleteAllChunks) {
-                queuedChunkDeletions.clear()
-                queuedChunkUpdates.clear()
+            val state = states[currentContextKey()] ?: return
 
-                chunkTextureMap.values.forEach { it.delete() }
-                chunkTextureMap.clear()
+            if (state.deleteAllChunks) {
+                state.queuedChunkDeletions.clear()
+                state.queuedChunkUpdates.clear()
 
-                deleteAllChunks = false
+                state.chunkTextureMap.values.forEach(MiniMapTexture::delete)
+                state.chunkTextureMap.clear()
+
+                state.deleteAllChunks = false
             } else {
-                queuedChunkDeletions.forEach {
-                    chunkTextureMap.remove(it)?.delete()
+                repeat(MAX_CHUNK_DELETIONS_PER_FRAME) {
+                    val iterator = state.queuedChunkDeletions.iterator()
+                    if (!iterator.hasNext()) {
+                        return@repeat
+                    }
+
+                    val location = iterator.next()
+                    iterator.remove()
+                    state.chunkTextureMap.remove(location)?.delete()
                 }
-                queuedChunkDeletions.clear()
             }
 
-            queuedChunkUpdates.forEach {
-                chunkTextureMap.getOrPut(it.location, ::MiniMapTexture).updateChunkData(it)
-            }
+            repeat(MAX_CHUNK_UPDATES_PER_FRAME) {
+                val iterator = state.queuedChunkUpdates.iterator()
+                if (!iterator.hasNext()) {
+                    return@repeat
+                }
 
-            queuedChunkUpdates.clear()
+                val chunk = iterator.next()
+                iterator.remove()
+                state.chunkTextureMap.getOrPut(chunk.location, ::MiniMapTexture).updateChunkData(chunk)
+            }
         }
     }
 
-    fun getLoadedChunkCount() = lock.read { chunkTextureMap.size }
+    fun getLoadedChunkCount() = lock.read { states[currentContextKey()]?.chunkTextureMap?.size ?: 0 }
 
     fun unloadChunk(x: Int, z: Int) {
         lock.write {
-            queuedChunkDeletions += ChunkLocation(x, z)
+            currentState().queuedChunkDeletions += ChunkLocation(x, z)
         }
     }
 
-    fun unloadAllChunks() = lock.write { deleteAllChunks = true }
+    fun unloadAllChunks() = lock.write {
+        currentState().deleteAllChunks = true
+    }
+
+    fun clearContext(tabId: String) {
+        lock.write {
+            states.remove(tabId)?.let(::disposeState)
+        }
+    }
+
+    fun clearAllContexts() {
+        lock.write {
+            states.values.forEach(::disposeState)
+            states.clear()
+        }
+    }
 
     class MiniMapTexture {
         val texture = DynamicTexture(16, 16)

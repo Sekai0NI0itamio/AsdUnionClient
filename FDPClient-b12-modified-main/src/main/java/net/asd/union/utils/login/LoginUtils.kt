@@ -43,12 +43,13 @@ object LoginUtils : MinecraftInstance {
         val username = UserUtils.getUsername(uuid) ?: return LoginResult.INVALID_ACCOUNT_DATA
 
         try {
-            mc.session = Session(username, uuid, sessionToken, "microsoft")
+            mc.addScheduledTask {
+                mc.session = Session(username, uuid, sessionToken, "microsoft")
+                call(SessionUpdateEvent)
+            }
         } catch (e: Exception) {
             return LoginResult.INVALID_ACCOUNT_DATA
         }
-
-        call(SessionUpdateEvent)
 
         return LoginResult.LOGGED
     }

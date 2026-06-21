@@ -79,7 +79,9 @@ object ClickGui : GuiScreen() {
         for (category in Category.values()) {
             panels += object : Panel(category.displayName, 100, yPos, width, height, false) {
                 override val elements = moduleManager.mapNotNull {
-                    it.takeIf { module -> module.category == category }?.let(::ModuleElement)
+                    it.takeIf { module -> module.category == category }?.let { module ->
+                        ModuleElement(module)
+                    }
                 }
             }
 
@@ -307,9 +309,9 @@ object ClickGui : GuiScreen() {
                             if (currentValue.isNotBlank()) {
                                 val editingMessageId = AutoText.getEditingMessageId()
                                 if (editingMessageId != null) {
-                                    AutoText.updateMessage(editingMessageId, currentValue.trim(), false)
+                                    AutoText.updateMessage(editingMessageId, currentValue, false)
                                 } else {
-                                    AutoText.addMessage(currentValue.trim(), false)
+                                    AutoText.addMessage(currentValue, false)
                                 }
 
                                 saveConfig(valuesConfig)
@@ -319,7 +321,9 @@ object ClickGui : GuiScreen() {
                         }
 
                         else -> {
-                            activeTextValue.set(currentValue.trim(), true)
+                            // Preserve spaces for text values — trimming would break intentional
+                            // leading/trailing spaces (e.g. "prefix " in Front Message)
+                            activeTextValue.set(currentValue, true)
                         }
                     }
 
@@ -358,14 +362,15 @@ object ClickGui : GuiScreen() {
                         activeTextValue.set("", false) // Don't save the empty value immediately
                     } else if (currentValue.isNotEmpty() && currentValue.isNotBlank() && activeTextValue.name == "AddMessage") {
                         // Add the message directly through the AutoText module
-                        net.asd.union.features.module.modules.other.AutoText.addMessage(currentValue.trim(), false)
+                        net.asd.union.features.module.modules.other.AutoText.addMessage(currentValue, false)
 
                         // Clear the input field after adding the message
                         activeTextValue.set("", false) // Don't save the empty value immediately
                         saveConfig(valuesConfig)
                     } else if (activeTextValue.name != "AddFriend" && activeTextValue.name != "AddMessage") {
-                        // For other TextValues, just save the value normally
-                        activeTextValue.set(currentValue.trim(), true) // Force save immediately
+                        // For other TextValues, preserve spaces — trimming breaks intentional
+                        // leading/trailing spaces (e.g. "prefix " in Front Message)
+                        activeTextValue.set(currentValue, true) // Force save immediately
                     }
 
                     style.activeTextValue = null

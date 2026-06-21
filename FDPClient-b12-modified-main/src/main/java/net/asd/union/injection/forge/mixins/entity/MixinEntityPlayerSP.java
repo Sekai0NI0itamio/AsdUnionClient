@@ -6,12 +6,13 @@
 package net.asd.union.injection.forge.mixins.entity;
 
 import net.asd.union.event.*;
-import net.asd.union.features.module.modules.combat.KillAura;
+import net.asd.union.features.module.modules.combat.AuraBridge;
 import net.asd.union.features.module.modules.movement.NoSlow;
 import net.asd.union.features.module.modules.movement.Sneak;
 import net.asd.union.features.module.modules.movement.Sprint;
 import net.asd.union.features.module.modules.visual.FreeCam;
 import net.asd.union.features.module.modules.visual.NoSwing;
+import net.asd.union.handler.sessiontabs.TabSimulationThread;
 import net.asd.union.utils.attack.CooldownHelper;
 import net.asd.union.utils.movement.MovementUtils;
 import net.asd.union.utils.rotation.Rotation;
@@ -47,6 +48,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -124,6 +126,21 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
      */
     @Inject(method = "onUpdateWalkingPlayer", at = @At("HEAD"), cancellable = true)
     private void onUpdateWalkingPlayer(CallbackInfo ci) {
+        // On simulation threads, skip all event dispatching and module logic.
+        // Just send a raw position packet to keep the server connection alive.
+        // Module event handlers reference mc.thePlayer and other active-tab state,
+        // which causes crashes and incorrect behavior on background tabs.
+        if (Thread.currentThread() instanceof TabSimulationThread) {
+            sendQueue.addToSendQueue(new C04PacketPlayerPosition(
+                    posX, getEntityBoundingBox().minY, posZ, onGround));
+            ++positionUpdateTicks;
+            lastReportedPosX = posX;
+            lastReportedPosY = getEntityBoundingBox().minY;
+            lastReportedPosZ = posZ;
+            ci.cancel();
+            return;
+        }
+
         MotionEvent motionEvent = new MotionEvent(
                 posX,
                 getEntityBoundingBox().minY,
@@ -134,7 +151,9 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
         EventManager.INSTANCE.call(motionEvent);
 
         final Sneak sneak = Sneak.INSTANCE;
-        final boolean fakeSprint = sneak.handleEvents()
+        // On simulation threads, mc.thePlayer is the foreground player — don't use it
+        final boolean fakeSprint = !(Thread.currentThread() instanceof TabSimulationThread)
+                && sneak.handleEvents()
                 && (!PlayerExtensionKt.isMoving(mc.thePlayer) || !sneak.getStopMove())
                 && sneak.getMode().equals("MineSecure");
 
@@ -280,11 +299,13 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
         prevTimeInPortal = timeInPortal;
 
         if (inPortal) {
-            if (mc.currentScreen != null && !mc.currentScreen.doesGuiPauseGame()) {
-                mc.displayGuiScreen(null);
+            if (!(Thread.currentThread() instanceof TabSimulationThread)) {
+                if (mc.currentScreen != null && !mc.currentScreen.doesGuiPauseGame()) {
+                    mc.displayGuiScreen(null);
+                }
             }
 
-            if (timeInPortal == 0f) {
+            if (timeInPortal == 0f && !(Thread.currentThread() instanceof TabSimulationThread)) {
                 mc.getSoundHandler().playSound(PositionedSoundRecord.create(new ResourceLocation("portal.trigger"), rand.nextFloat() * 0.4F + 0.8F));
             }
 
@@ -341,6 +362,17 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
         float moveForward = currentRotation != null ? Math.round(modifiedInput.moveForward * MathHelper.cos(MathExtensionsKt.toRadians(rotationYaw - currentRotation.getYaw())) + modifiedInput.moveStrafe * MathHelper.sin(MathExtensionsKt.toRadians(rotationYaw - currentRotation.getYaw()))) : modifiedInput.moveForward;
         float moveStrafe = currentRotation != null ? Math.round(modifiedInput.moveStrafe * MathHelper.cos(MathExtensionsKt.toRadians(rotationYaw - currentRotation.getYaw())) - modifiedInput.moveForward * MathHelper.sin(MathExtensionsKt.toRadians(rotationYaw - currentRotation.getYaw()))) : modifiedInput.moveStrafe;
 
+        // Normalize corrected movement to prevent speed exploits
+        // When rotation is offset, the corrected input can have magnitude > 1.0
+        // which causes the player to move faster than vanilla allows
+        if (currentRotation != null) {
+            float mag = (float) Math.sqrt(moveForward * moveForward + moveStrafe * moveStrafe);
+            if (mag > 1.0F) {
+                moveForward /= mag;
+                moveStrafe /= mag;
+            }
+        }
+
         modifiedInput.moveForward = moveForward;
         modifiedInput.moveStrafe = moveStrafe;
 
@@ -360,9 +392,8 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
         }
 
         final NoSlow noSlow = NoSlow.INSTANCE;
-        final KillAura killAura = KillAura.INSTANCE;
 
-        boolean isUsingItem = getHeldItem() != null && (isUsingItem() || (getHeldItem().getItem() instanceof ItemSword && killAura.getBlockStatus()) || NoSlow.INSTANCE.isUNCPBlocking());
+        boolean isUsingItem = getHeldItem() != null && (isUsingItem() || (getHeldItem().getItem() instanceof ItemSword && AuraBridge.isBlocking()) || NoSlow.INSTANCE.isUNCPBlocking());
 
         if (isUsingItem && !isRiding()) {
             final SlowDownEvent slowDownEvent = new SlowDownEvent(0.2F, 0.2F);
@@ -385,7 +416,12 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
         final Sprint sprint = Sprint.INSTANCE;
 
         boolean flag3 = (float) getFoodStats().getFoodLevel() > 6F || capabilities.allowFlying;
-        if (onGround && !flag1 && !flag2 && movementInput.moveForward >= f && !isSprinting() && flag3 && !isUsingItem() && !isPotionActive(Potion.blindness)) {
+
+        // Use corrected input for sprint checks when rotation is active
+        // This prevents sprint from activating when the corrected movement is sideways
+        float sprintForwardCheck = currentRotation != null ? modifiedInput.moveForward : movementInput.moveForward;
+
+        if (onGround && !flag1 && !flag2 && sprintForwardCheck >= f && !isSprinting() && flag3 && !isUsingItem() && !isPotionActive(Potion.blindness)) {
             if (sprintToggleTimer <= 0 && !mc.gameSettings.keyBindSprint.isKeyDown()) {
                 sprintToggleTimer = 7;
             } else {
@@ -393,11 +429,11 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
             }
         }
 
-        if (!isSprinting() && movementInput.moveForward >= f && flag3 && (noSlow.handleEvents() || !isUsingItem()) && !isPotionActive(Potion.blindness) && mc.gameSettings.keyBindSprint.isKeyDown()) {
+        if (!isSprinting() && sprintForwardCheck >= f && flag3 && (noSlow.handleEvents() || !isUsingItem()) && !isPotionActive(Potion.blindness) && mc.gameSettings.keyBindSprint.isKeyDown()) {
             setSprinting(true);
         }
 
-        if (isSprinting() && (movementInput.moveForward < f || isCollidedHorizontally || !flag3)) {
+        if (isSprinting() && (sprintForwardCheck < f || isCollidedHorizontally || !flag3)) {
             setSprinting(false);
         }
 
@@ -406,7 +442,7 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
         sprint.correctSprintState(modifiedInput, isUsingItem);
 
         if (capabilities.allowFlying) {
-            if (mc.playerController.isSpectatorMode()) {
+            if (!(Thread.currentThread() instanceof TabSimulationThread) && mc.playerController.isSpectatorMode()) {
                 if (!capabilities.isFlying) {
                     capabilities.isFlying = true;
                     sendPlayerAbilities();
@@ -462,7 +498,7 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
 
         super.onLivingUpdate();
 
-        if (onGround && capabilities.isFlying && !mc.playerController.isSpectatorMode()) {
+        if (onGround && capabilities.isFlying && !(Thread.currentThread() instanceof TabSimulationThread) && !mc.playerController.isSpectatorMode()) {
             capabilities.isFlying = false;
             sendPlayerAbilities();
         }
@@ -771,6 +807,14 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
 
     @Inject(method = "onUpdate", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/entity/AbstractClientPlayer;onUpdate()V", shift = At.Shift.BEFORE, ordinal = 0), cancellable = true)
     private void preTickEvent(CallbackInfo ci) {
+        // Skip event dispatching on simulation threads — module handlers
+        // reference mc.thePlayer and other active-tab state.
+        // Don't cancel the entire onUpdate though — the player still needs
+        // to tick (send position packets, update entity state, etc.)
+        if (Thread.currentThread() instanceof TabSimulationThread) {
+            return;
+        }
+
         final PlayerTickEvent tickEvent = new PlayerTickEvent(EventState.PRE);
         EventManager.INSTANCE.call(tickEvent);
 
@@ -782,7 +826,52 @@ public abstract class MixinEntityPlayerSP extends MixinAbstractClientPlayer {
 
     @Inject(method = "onUpdate", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/entity/AbstractClientPlayer;onUpdate()V", shift = At.Shift.AFTER, ordinal = 0))
     private void postTickEvent(CallbackInfo ci) {
+        // Skip event dispatching on simulation threads
+        if (Thread.currentThread() instanceof TabSimulationThread) {
+            return;
+        }
+
         final PlayerTickEvent tickEvent = new PlayerTickEvent(EventState.POST);
         EventManager.INSTANCE.call(tickEvent);
+    }
+
+    public void asdUnion$resetPositionTracking() {
+        this.lastReportedPosX = this.posX;
+        this.lastReportedPosY = this.getEntityBoundingBox().minY;
+        this.lastReportedPosZ = this.posZ;
+        this.lastReportedYaw = this.rotationYaw;
+        this.lastReportedPitch = this.rotationPitch;
+        this.positionUpdateTicks = 0;
+    }
+
+    // === Simulation thread guards for vanilla EntityPlayerSP methods ===
+
+    /**
+     * Block minecart riding sound from simulation threads.
+     */
+    @Redirect(method = "onLivingUpdate", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/audio/SoundHandler;playSound(Lnet/minecraft/client/audio/ISound;)V", ordinal = 0))
+    private void fdp$skipMinecartRidingSound(net.minecraft.client.audio.SoundHandler handler, net.minecraft.client.audio.ISound sound) {
+        if (Thread.currentThread() instanceof TabSimulationThread) return;
+        handler.playSound(sound);
+    }
+
+    /**
+     * Fix isCurrentViewEntity: on simulation threads, always return true
+     * so the player's position updates are sent to the server.
+     */
+    @Redirect(method = "onUpdateWalkingPlayer", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/entity/EntityPlayerSP;isCurrentViewEntity()Z"))
+    private boolean fdp$alwaysCurrentViewOnSimThread(EntityPlayerSP instance) {
+        if (Thread.currentThread() instanceof TabSimulationThread) return true;
+        return isCurrentViewEntity();
+    }
+
+    /**
+     * Block respawning displayGuiScreen from simulation threads.
+     * The MixinMinecraft guard handles this, but let's also guard at the source.
+     */
+    @Redirect(method = "respawnPlayer", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;displayGuiScreen(Lnet/minecraft/client/gui/GuiScreen;)V"))
+    private void fdp$skipRespawnDisplayGui(Minecraft mcInstance, net.minecraft.client.gui.GuiScreen screen) {
+        if (Thread.currentThread() instanceof TabSimulationThread) return;
+        mcInstance.displayGuiScreen(screen);
     }
 }

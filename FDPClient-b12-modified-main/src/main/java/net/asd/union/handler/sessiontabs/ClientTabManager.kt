@@ -1,8 +1,5 @@
 package net.asd.union.handler.sessiontabs
 
-import net.asd.union.config.BoolValue
-import net.asd.union.config.FloatValue
-import net.asd.union.config.IntegerValue
 import net.asd.union.event.EventManager
 import net.asd.union.event.GameTickEvent
 import net.asd.union.event.Listenable
@@ -10,44 +7,23 @@ import net.asd.union.event.Render2DEvent
 import net.asd.union.event.SessionUpdateEvent
 import net.asd.union.event.handler
 import net.asd.union.features.module.modules.client.HUDModule.guiColor
-import net.asd.union.features.module.modules.combat.KillAura
-import net.asd.union.features.module.modules.combat.KillAuraTargeter
-import net.asd.union.features.module.modules.other.LinkBots
 import net.asd.union.file.FileManager
 import net.asd.union.ui.client.gui.AltNameMode
 import net.asd.union.ui.client.gui.GuiClientConfiguration
 import net.asd.union.ui.client.gui.GuiMainMenu
 import net.asd.union.ui.client.tabs.GuiAddClientTab
 import net.asd.union.ui.client.tabs.GuiTabDecisionScreen
-import net.asd.union.utils.attack.CooldownHelper.getAttackCooldownProgress
 import net.asd.union.utils.client.ClientUtils
 import net.asd.union.utils.client.MinecraftInstance
 import net.asd.union.utils.client.ServerUtils
-import net.asd.union.utils.extensions.attackEntityWithModifiedSprint
-import net.asd.union.utils.extensions.center
-import net.asd.union.utils.extensions.getDistanceToEntityBox
-import net.asd.union.utils.extensions.hitBox
-import net.asd.union.utils.extensions.setSprintSafely
-import net.asd.union.utils.pathing.BaritoneGoalNear
-import net.asd.union.utils.pathing.BaritoneNavigationSession
-import net.asd.union.utils.pathing.NavigationSettings
-import net.asd.union.utils.pathing.PathFollowCommand
-import net.asd.union.utils.rotation.RotationUtils.toRotation
-import net.asd.union.utils.timing.TimeUtils.randomClickDelay
+import net.asd.union.handler.render.LazyChunkCache
+import net.asd.union.utils.render.MiniMapRegister
 import net.minecraft.client.gui.Gui
-import net.minecraft.client.gui.GuiDisconnected
 import net.minecraft.client.gui.GuiIngameMenu
-import net.minecraft.client.gui.GuiMultiplayer
 import net.minecraft.client.gui.GuiScreen
 import net.minecraft.client.gui.ScaledResolution
-import net.minecraft.client.multiplayer.GuiConnecting
 import net.minecraft.client.multiplayer.ServerData
-import net.minecraft.client.settings.KeyBinding
-import net.minecraft.entity.EntityLivingBase
-import net.minecraft.item.ItemSword
-import net.minecraft.util.BlockPos
 import net.minecraft.util.Session
-import net.minecraft.util.Vec3
 import org.lwjgl.input.Mouse
 import java.awt.Color
 import java.util.UUID
@@ -63,12 +39,6 @@ object ClientTabManager : Listenable, MinecraftInstance {
     private const val MAX_TAB_WIDTH = 170
     private const val RIGHT_RESERVED = 96
     private const val PLUS_WIDTH = 18
-    private const val MENU_WIDTH = 110
-    private const val MENU_ITEM_HEIGHT = 20
-    private const val MENU_HEIGHT = MENU_ITEM_HEIGHT * 2
-    private const val LINK_BOT_FOLLOW_RANGE = 1
-    private const val LINK_BOT_SUCCESS_RADIUS = 1.35
-    private const val LINK_BOT_FOCUS_PADDING = 1.0
 
     private val tabs = mutableListOf<ClientTab>()
     private var activeTabId: String? = null
@@ -78,123 +48,37 @@ object ClientTabManager : Listenable, MinecraftInstance {
     private var leftMouseDown = false
     private var rightMouseDown = false
     private var tabBarVisible = false
-    private var mirroredLeftClickSequence = 0
-    private var mirroredRightClickSequence = 0
-    private var mirroredBlockClickActive = false
-    private var mirroredLookState: MirroredLookState? = null
-    private var mainInputMirroringActive = false
-    private var lastMirroredConnectKey: String? = null
-    private var lastMainWorldPresent = false
-    private val lastAppliedLeftClickSequence = mutableMapOf<String, Int>()
-    private val lastAppliedRightClickSequence = mutableMapOf<String, Int>()
-    private val pendingMirroredReleaseTabs = mutableSetOf<String>()
-    private val linkedBotStates = mutableMapOf<String, LinkedBotState>()
+    private var scheduledSwitch: Pair<String, GuiScreen?>? = null
 
     private val activeTab: ClientTab?
         get() = tabs.firstOrNull { it.id == activeTabId }
 
-    private val mainTab: ClientTab?
-        get() = tabs.firstOrNull { it.isMain }
-
     fun currentTabId(): String? = activeTabId
 
-    fun isMainTabActive(): Boolean = activeTab?.isMain == true
+    fun switchToTabById(tabId: String): Boolean {
+        if (tabs.none { it.id == tabId }) return false
+        requestSwitch(tabId, null)
+        return true
+    }
+
+    fun configSnapshotForTab(tabId: String): TabConfigSnapshot? =
+        tabs.firstOrNull { it.id == tabId }?.configSnapshot
+
+    fun updateConfigSnapshot(tabId: String, snapshot: TabConfigSnapshot) {
+        tabs.firstOrNull { it.id == tabId }?.configSnapshot = snapshot
+    }
 
     fun sessionForTab(tabId: String): Session? =
         tabs.firstOrNull { it.id == tabId }?.sessionSnapshot?.toMinecraftSession()
 
-    fun isTabSyncedToMain(tabId: String): Boolean =
-        tabs.firstOrNull { it.id == tabId }?.syncedToMain == true
-
-    fun shouldMirrorMainInputTo(tabId: String): Boolean {
-        val tab = tabs.firstOrNull { it.id == tabId } ?: return false
-        return mainInputMirroringActive && !tab.isMain && tab.syncedToMain && !shouldLinkBotControl(tabId)
+    fun shouldRunFullBackgroundSimulation(tabId: String): Boolean {
+        val runtime = LiveTabRuntimeManager.runtimeFor(tabId) ?: return false
+        return runtime.hasWorldState
     }
 
-    fun clearLinkedBotRuntimeState() {
-        linkedBotStates.values.forEach { it.navigator.clear() }
-        linkedBotStates.clear()
-    }
-
-    fun applyMirroredLookState(tabId: String) {
-        if (applyLinkedBotLookState(tabId)) {
-            return
-        }
-
-        if (!shouldMirrorMainInputTo(tabId)) {
-            return
-        }
-
-        val player = mc.thePlayer ?: return
-        val lookState = mirroredLookState ?: return
-
-        player.rotationYaw = lookState.rotationYaw
-        player.rotationPitch = lookState.rotationPitch
-        player.prevRotationYaw = lookState.rotationYaw
-        player.prevRotationPitch = lookState.rotationPitch
-        player.rotationYawHead = lookState.rotationYawHead
-        player.prevRotationYawHead = lookState.rotationYawHead
-        player.renderYawOffset = lookState.renderYawOffset
-        player.prevRenderYawOffset = lookState.renderYawOffset
-    }
-
-    fun applyMirroredIngameActions(tabId: String) {
-        val tab = tabs.firstOrNull { it.id == tabId } ?: return
-
-        if (applyLinkedBotIngameActions(tabId)) {
-            return
-        }
-
-        if (!shouldMirrorMainInputTo(tabId)) {
-            primeMirroredInputState(tabId)
-            if (tab.syncedToMain || pendingMirroredReleaseTabs.remove(tabId)) {
-                releaseMirroredHeldActions()
-            }
-            return
-        }
-
-        pendingMirroredReleaseTabs.remove(tabId)
-
-        if (lastAppliedLeftClickSequence[tabId] != mirroredLeftClickSequence) {
-            if (mirroredLeftClickSequence > 0) {
-                mc.clickMouse()
-            }
-            lastAppliedLeftClickSequence[tabId] = mirroredLeftClickSequence
-        }
-
-        if (lastAppliedRightClickSequence[tabId] != mirroredRightClickSequence) {
-            if (mirroredRightClickSequence > 0) {
-                mc.rightClickMouse()
-            }
-            lastAppliedRightClickSequence[tabId] = mirroredRightClickSequence
-        }
-
-        mc.sendClickBlockToController(mirroredBlockClickActive)
-        syncMirroredUseItemState()
-    }
-
-    fun registerMirroredLeftClick() {
-        if (!shouldRecordMirroredIngameInput()) {
-            return
-        }
-
-        mirroredLeftClickSequence++
-    }
-
-    fun registerMirroredRightClick() {
-        if (!shouldRecordMirroredIngameInput()) {
-            return
-        }
-
-        mirroredRightClickSequence++
-    }
-
-    fun setMirroredBlockClick(active: Boolean) {
-        if (!shouldRecordMirroredIngameInput()) {
-            return
-        }
-
-        mirroredBlockClickActive = active
+    private fun clearPerTabRenderCaches(tabId: String) {
+        LazyChunkCache.clearContext(tabId)
+        MiniMapRegister.clearContext(tabId)
     }
 
     fun bootstrap() {
@@ -205,8 +89,7 @@ object ClientTabManager : Listenable, MinecraftInstance {
             displayName = sessionSnapshot.username,
             sessionSnapshot = sessionSnapshot,
             configSnapshot = TabConfigSnapshot.captureCurrentState(),
-            lastServerAddress = mc.currentServerData?.serverIP,
-            isMain = true
+            lastServerAddress = mc.currentServerData?.serverIP
         )
         activeTabId = tabs.firstOrNull()?.id
         bootstrapped = true
@@ -217,7 +100,7 @@ object ClientTabManager : Listenable, MinecraftInstance {
             return true
         }
 
-        return persistenceSuspendDepth == 0 && (activeTab?.isMain != false)
+        return persistenceSuspendDepth == 0
     }
 
     fun contentTop(screen: GuiScreen?): Int {
@@ -233,6 +116,17 @@ object ClientTabManager : Listenable, MinecraftInstance {
 
         tabBarVisible = visible
         contextMenu = null
+    }
+
+    fun setTabStatus(tabId: String, status: TabStatus, detail: String? = null) {
+        tabs.find { it.id == tabId }?.let {
+            it.status = status
+            it.statusDetail = detail
+        }
+    }
+
+    fun getTabStatus(tabId: String): Pair<TabStatus, String?>? {
+        return tabs.find { it.id == tabId }?.let { Pair(it.status, it.statusDetail) }
     }
 
     fun toggleTabBarVisible() {
@@ -262,11 +156,22 @@ object ClientTabManager : Listenable, MinecraftInstance {
     }
 
     fun createOfflineTab(username: String, returnScreen: GuiScreen?) {
+        val tabId = createOfflineTabBackground(username)
+        if (tabId != null) {
+            switchToTab(tabId, returnScreen)
+        }
+    }
+
+    /**
+     * Create an offline tab without switching to it.
+     * Returns the new tab's ID, or null if the username was empty.
+     */
+    fun createOfflineTabBackground(username: String): String? {
         bootstrap()
 
         val cleanUsername = username.trim()
         if (cleanUsername.isEmpty()) {
-            return
+            return null
         }
 
         val newTab = ClientTab(
@@ -277,7 +182,7 @@ object ClientTabManager : Listenable, MinecraftInstance {
 
         tabs += newTab
         contextMenu = null
-        switchToTab(newTab.id, returnScreen)
+        return newTab.id
     }
 
     fun generateSuggestedUsername(
@@ -286,7 +191,7 @@ object ClientTabManager : Listenable, MinecraftInstance {
         length: Int,
         unformatted: Boolean
     ): String {
-        return net.asd.union.utils.kotlin.RandomUtils.randomUsername(mode, prefix, length, unformatted)
+        return net.asd.union.utils.kotlin.RandomUtils.randomUsername(prefix, length, unformatted)
     }
 
     fun defaultMode() = GuiClientConfiguration.altNameMode
@@ -297,310 +202,9 @@ object ClientTabManager : Listenable, MinecraftInstance {
 
     fun defaultUnformatted() = GuiClientConfiguration.unformattedAlts
 
-    private fun mainRuntime(): LiveTabRuntime? {
-        val currentMainTab = mainTab ?: return null
-        return LiveTabRuntimeManager.runtimeFor(currentMainTab.id)
-    }
-
-    fun prepareDetachedKeyStates(runtime: LiveTabRuntime): Map<KeyBinding, Boolean>? {
-        if (!shouldLinkBotControl(runtime.tabId)) {
-            clearLinkedBotState(runtime.tabId)
-            return null
-        }
-
-        val player = mc.thePlayer ?: run {
-            clearLinkedBotState(runtime.tabId)
-            return emptyMap()
-        }
-        val mainPlayer = mainRuntime()?.player ?: run {
-            linkedBotState(runtime.tabId).apply {
-                navigator.clear()
-                followCommand = PathFollowCommand.idle()
-                lookTarget = null
-            }
-            return emptyMap()
-        }
-
-        val state = linkedBotState(runtime.tabId)
-        val mainFeet = BlockPos(mainPlayer.posX, mainPlayer.entityBoundingBox.minY, mainPlayer.posZ)
-        val exactGoal = Vec3(mainPlayer.posX, mainPlayer.posY, mainPlayer.posZ)
-
-        state.navigator.updateGoal(
-            BaritoneGoalNear(mainFeet, LINK_BOT_FOLLOW_RANGE),
-            exactGoal = exactGoal,
-            successRadius = LINK_BOT_SUCCESS_RADIUS,
-        )
-
-        state.followCommand = state.navigator.tick(mc.theWorld, player)
-
-        val linkedTarget = linkedBotSharedTarget()
-        val attackFocusRange = linkedBotAttackRange() + LINK_BOT_FOCUS_PADDING
-
-        state.lookTarget = when {
-            linkedTarget != null && player.getDistanceToEntityBox(linkedTarget) <= attackFocusRange -> linkedTarget.hitBox.center
-            state.followCommand.lookTarget != null -> {
-                val lookTarget = state.followCommand.lookTarget!!
-                Vec3(lookTarget.xCoord, player.posY + player.eyeHeight.toDouble(), lookTarget.zCoord)
-            }
-
-            else -> Vec3(mainPlayer.posX, player.posY + player.eyeHeight.toDouble(), mainPlayer.posZ)
-        }
-
-        return linkedBotPressedStates(state.followCommand)
-    }
-
-    private fun shouldLinkBotControl(tabId: String): Boolean {
-        val tab = tabs.firstOrNull { it.id == tabId } ?: return false
-        return !tab.isMain && tab.syncedToMain && LinkBots.isLinkedControlActive() && mainRuntime()?.world != null
-    }
-
-    private fun linkedBotState(tabId: String): LinkedBotState {
-        return linkedBotStates.getOrPut(tabId) {
-            LinkedBotState(
-                navigator = BaritoneNavigationSession(
-                    navigationSettings = NavigationSettings(sprint = true)
-                )
-            )
-        }
-    }
-
-    private fun clearLinkedBotState(tabId: String) {
-        linkedBotStates.remove(tabId)?.navigator?.clear()
-    }
-
-    private fun pruneLinkedBotStates() {
-        linkedBotStates.keys
-            .filter { tabId -> tabs.none { it.id == tabId } || !shouldLinkBotControl(tabId) }
-            .toList()
-            .forEach(::clearLinkedBotState)
-    }
-
-    private fun linkedBotPressedStates(command: PathFollowCommand): Map<KeyBinding, Boolean> {
-        return mapOf(
-            mc.gameSettings.keyBindForward to (command.active && command.moveForward > 0f),
-            mc.gameSettings.keyBindBack to (command.active && command.moveForward < 0f),
-            mc.gameSettings.keyBindLeft to (command.active && command.moveStrafe < 0f),
-            mc.gameSettings.keyBindRight to (command.active && command.moveStrafe > 0f),
-            mc.gameSettings.keyBindJump to (command.active && command.jump),
-            mc.gameSettings.keyBindSprint to (command.active && command.sprint),
-        )
-    }
-
-    private fun applyLinkedBotLookState(tabId: String): Boolean {
-        if (!shouldLinkBotControl(tabId)) {
-            clearLinkedBotState(tabId)
-            return false
-        }
-
-        val player = mc.thePlayer ?: return true
-        val lookTarget = linkedBotStates[tabId]?.lookTarget ?: return true
-        val rotation = toRotation(lookTarget, false, player)
-
-        player.rotationYaw = rotation.yaw
-        player.prevRotationYaw = rotation.yaw
-        player.rotationPitch = rotation.pitch
-        player.prevRotationPitch = rotation.pitch
-        player.rotationYawHead = rotation.yaw
-        player.prevRotationYawHead = rotation.yaw
-        player.renderYawOffset = rotation.yaw
-        player.prevRenderYawOffset = rotation.yaw
-
-        return true
-    }
-
-    private fun applyLinkedBotIngameActions(tabId: String): Boolean {
-        if (!shouldLinkBotControl(tabId)) {
-            clearLinkedBotState(tabId)
-            return false
-        }
-
-        val player = mc.thePlayer ?: return true
-        val state = linkedBotStates[tabId] ?: return true
-
-        releaseMirroredHeldActions()
-        player setSprintSafely (state.followCommand.active && state.followCommand.sprint)
-        tryLinkedBotAttack(state)
-
-        return true
-    }
-
-    private fun tryLinkedBotAttack(state: LinkedBotState) {
-        if (!KillAura.state) {
-            return
-        }
-
-        val target = linkedBotSharedTarget() ?: return
-        val player = mc.thePlayer ?: return
-        val now = System.currentTimeMillis()
-
-        if (now < state.nextAttackAt || !canLinkedBotAttack(player, target)) {
-            return
-        }
-
-        val maxCps = (KillAura["MaxCPS"] as? IntegerValue)?.get() ?: 8
-        if (maxCps <= 0) {
-            return
-        }
-
-        if ((KillAura["SimulateCooldown"] as? BoolValue)?.get() == true && getAttackCooldownProgress() < 1f) {
-            return
-        }
-
-        player.attackEntityWithModifiedSprint(target, false) {
-            player.swingItem()
-        }
-
-        val minCps = (KillAura["MinCPS"] as? IntegerValue)?.get() ?: 5
-        val safeMin = minOf(minCps, maxCps)
-        val safeMax = maxOf(minCps, maxCps)
-        state.nextAttackAt = now + randomClickDelay(safeMin, safeMax).toLong().coerceAtLeast(0L)
-    }
-
-    private fun canLinkedBotAttack(player: net.minecraft.client.entity.EntityPlayerSP, target: EntityLivingBase): Boolean {
-        if (!target.isEntityAlive || target === player || player.isSpectator || player.isDead) {
-            return false
-        }
-
-        if ((KillAura["OnSwording"] as? BoolValue)?.get() == true && player.heldItem?.item !is ItemSword) {
-            return false
-        }
-
-        val attackRange = linkedBotAttackRange()
-        val throughWallsRange = linkedBotThroughWallsRange()
-        val distance = player.getDistanceToEntityBox(target)
-
-        if (distance <= attackRange) {
-            return true
-        }
-
-        return !player.canEntityBeSeen(target) && distance <= throughWallsRange
-    }
-
-    private fun linkedBotAttackRange(): Double {
-        return (KillAura["Range"] as? FloatValue)?.get()?.toDouble() ?: 3.7
-    }
-
-    private fun linkedBotThroughWallsRange(): Double {
-        return (KillAura["ThroughWallsRange"] as? FloatValue)?.get()?.toDouble() ?: linkedBotAttackRange()
-    }
-
-    private fun linkedBotSharedTarget(): EntityLivingBase? {
-        if (!KillAuraTargeter.isLinkBotsModeActive()) {
-            return null
-        }
-
-        return KillAuraTargeter.getTargetEntity()?.takeIf { it.isEntityAlive }
-    }
-
-    private fun sanitizedMirrorScreen(screen: GuiScreen?): GuiScreen? {
-        return if (screen?.doesGuiPauseGame() == true) null else screen
-    }
-
-    private fun shouldRecordMirroredIngameInput(): Boolean {
-        return !SessionRuntimeScope.isDetachedContextActive() &&
-            activeTab?.isMain == true &&
-            mc.currentScreen == null &&
-            mc.theWorld != null &&
-            mc.thePlayer != null
-    }
-
-    private fun refreshMirroredMainControlState() {
-        mainInputMirroringActive = shouldRecordMirroredIngameInput()
-        mirroredLookState = if (mainInputMirroringActive) {
-            mc.thePlayer?.let { player ->
-                MirroredLookState(
-                    rotationYaw = player.rotationYaw,
-                    rotationPitch = player.rotationPitch,
-                    rotationYawHead = player.rotationYawHead,
-                    renderYawOffset = player.renderYawOffset
-                )
-            }
-        } else {
-            null
-        }
-
-        if (!mainInputMirroringActive) {
-            mirroredBlockClickActive = false
-        }
-    }
-
-    private fun primeMirroredInputState(tabId: String) {
-        lastAppliedLeftClickSequence[tabId] = mirroredLeftClickSequence
-        lastAppliedRightClickSequence[tabId] = mirroredRightClickSequence
-    }
-
-    private fun clearMirroredInputState(tabId: String) {
-        lastAppliedLeftClickSequence.remove(tabId)
-        lastAppliedRightClickSequence.remove(tabId)
-    }
-
-    private fun releaseMirroredHeldActions() {
-        runCatching {
-            mc.sendClickBlockToController(false)
-        }
-        syncMirroredUseItemState(forceRelease = true)
-    }
-
-    private fun syncMirroredUseItemState(forceRelease: Boolean = false) {
-        val player = mc.thePlayer ?: return
-        val controller = mc.playerController ?: return
-        val shouldHoldUseItem = !forceRelease && mc.gameSettings?.keyBindUseItem?.pressed == true
-
-        if (!shouldHoldUseItem && player.isUsingItem) {
-            runCatching {
-                controller.onStoppedUsingItem(player)
-            }
-            runCatching {
-                player.stopUsingItem()
-            }
-        }
-    }
-
-    private fun mainSourceScreen(): GuiScreen? {
-        val currentMainTab = mainTab ?: return sanitizedMirrorScreen(mc.currentScreen)
-        return if (currentMainTab.id == activeTabId) {
-            sanitizedMirrorScreen(mc.currentScreen)
-        } else {
-            sanitizedMirrorScreen(mainRuntime()?.currentScreen)
-        }
-    }
-
-    private fun mainSourceServerData(): ServerData? {
-        val currentMainTab = mainTab ?: return mc.currentServerData
-        return if (currentMainTab.id == activeTabId) {
-            mc.currentServerData
-        } else {
-            mainRuntime()?.serverData
-        }
-    }
-
-    private fun mainSourceWorldPresent(): Boolean {
-        val currentMainTab = mainTab ?: return mc.theWorld != null
-        return if (currentMainTab.id == activeTabId) {
-            mc.theWorld != null
-        } else {
-            mainRuntime()?.world != null
-        }
-    }
-
-    private fun mainSourceConfigSnapshot(): TabConfigSnapshot {
-        val currentMainTab = mainTab
-        return if (currentMainTab?.id == activeTabId) {
-            TabConfigSnapshot.captureCurrentState()
-        } else {
-            currentMainTab?.configSnapshot ?: TabConfigSnapshot.captureCurrentState()
-        }
-    }
-
     private fun shouldRenderOn(screen: GuiScreen?): Boolean {
         bootstrap()
-
-        return screen == null ||
-            screen is GuiMainMenu ||
-            screen is GuiMultiplayer ||
-            screen is GuiConnecting ||
-            screen is GuiDisconnected ||
-            screen is GuiIngameMenu
+        return true
     }
 
     private fun captureActiveTabState() {
@@ -611,14 +215,6 @@ object ClientTabManager : Listenable, MinecraftInstance {
         }
         tab.lastServerAddress = mc.currentServerData?.serverIP ?: tab.lastServerAddress
         tab.configSnapshot = TabConfigSnapshot.captureCurrentState()
-
-        if (tab.isMain) {
-            val syncedSnapshot = tab.configSnapshot
-            tabs.filter { it.syncedToMain }.forEach { syncedTab ->
-                syncedTab.configSnapshot = syncedSnapshot
-                syncedTab.lastServerAddress = tab.lastServerAddress
-            }
-        }
     }
 
     private fun applyTab(tabId: String, captureCurrent: Boolean) {
@@ -641,10 +237,6 @@ object ClientTabManager : Listenable, MinecraftInstance {
         } finally {
             persistenceSuspendDepth--
         }
-
-        if (target.isMain && canPersistToMainStorage()) {
-            FileManager.saveAllConfigs()
-        }
     }
 
     private fun requestSwitch(tabId: String, returnScreen: GuiScreen?) {
@@ -652,40 +244,89 @@ object ClientTabManager : Listenable, MinecraftInstance {
             return
         }
 
-        switchToTab(tabId, returnScreen)
+        // Defer the switch to the next tick to prevent NPE when switching
+        // from within a mouse click handler. The current screen's handleInput
+        // loop may still reference mc.thePlayer after clearMinecraftRuntime
+        // nulls it, causing NPE in GuiContainer.mouseClicked.
+        scheduledSwitch = tabId to returnScreen
     }
 
     private fun switchToTab(tabId: String, returnScreen: GuiScreen?) {
         val previousActiveTabId = activeTabId
         val hadLiveWorld = mc.theWorld != null
+        System.out.println("[TabDebug][switchToTab] === START switchToTab ===")
+        System.out.println("[TabDebug][switchToTab] from=$previousActiveTabId to=$tabId, " +
+            "hadLiveWorld=$hadLiveWorld, returnScreen=${returnScreen?.javaClass?.simpleName}")
+        System.out.println("[TabDebug][switchToTab] mc BEFORE: theWorld=${mc.theWorld != null}, " +
+            "thePlayer=${mc.thePlayer != null}, controller=${mc.playerController != null}, " +
+            "currentScreen=${mc.currentScreen?.javaClass?.simpleName}")
+        System.out.flush()
+
+        System.out.println("[TabDebug][switchToTab] STEP 1: captureCurrentRuntime($previousActiveTabId)")
+        System.out.flush()
         val capturedPreviousState = previousActiveTabId != null && LiveTabRuntimeManager.captureCurrentRuntime(previousActiveTabId)
+        System.out.println("[TabDebug][switchToTab] STEP 1 result: captureCurrentRuntime=$capturedPreviousState")
+        System.out.flush()
 
         if (previousActiveTabId != null) {
+            System.out.println("[TabDebug][switchToTab] STEP 2: deactivate previous tab $previousActiveTabId")
+            System.out.flush()
             LiveTabRuntimeManager.prepareRuntimeForBackground(previousActiveTabId)
-            primeMirroredInputState(previousActiveTabId)
             LiveTabRuntimeManager.deactivateRuntime(previousActiveTabId)
+            System.out.println("[TabDebug][switchToTab] STEP 2 done: deactivated $previousActiveTabId")
+            System.out.flush()
         }
 
+        System.out.println("[TabDebug][switchToTab] STEP 3: applyTab($tabId)")
+        System.out.flush()
         applyTab(tabId, captureCurrent = true)
+        System.out.println("[TabDebug][switchToTab] STEP 3 done: session/config applied. " +
+            "mc.session=${mc.session?.username}")
+        System.out.flush()
 
-        if (LiveTabRuntimeManager.activateRuntime(tabId)) {
-            TabChatManager.restoreForTab(tabId)
+        // Save previous tab's chat and restore new tab's chat
+        TabChatManager.saveCurrentAndSwitch(previousActiveTabId, tabId)
+
+        System.out.println("[TabDebug][switchToTab] STEP 4: activateRuntime($tabId)")
+        System.out.flush()
+        val activated = LiveTabRuntimeManager.activateRuntime(tabId)
+        System.out.println("[TabDebug][switchToTab] STEP 4 result: activateRuntime=$activated")
+        System.out.flush()
+
+        if (activated) {
+            System.out.println("[TabDebug][switchToTab] STEP 5: Switch completed. " +
+                "Post-state: mc.theWorld=${mc.theWorld != null}, mc.thePlayer=${mc.thePlayer != null}, " +
+                "mc.currentScreen=${mc.currentScreen?.javaClass?.simpleName}")
+            System.out.println("[TabDebug][switchToTab] === END switchToTab (activated) ===")
+            System.out.flush()
             return
         }
 
         if (capturedPreviousState && hadLiveWorld) {
-            val fallbackScreen = if (returnScreen == null || returnScreen is GuiIngameMenu) {
+            val fallbackScreen = if (returnScreen == null || returnScreen is GuiIngameMenu
+                || returnScreen is net.minecraft.client.gui.inventory.GuiContainer) {
                 GuiMainMenu()
             } else {
                 returnScreen
             }
+            System.out.println("[TabDebug][switchToTab] STEP 6: clearMinecraftRuntime($fallbackScreen)")
+            System.out.flush()
             LiveTabRuntimeManager.clearMinecraftRuntime(fallbackScreen)
-            TabChatManager.restoreForTab(tabId)
+            System.out.println("[TabDebug][switchToTab] === END switchToTab (cleared) ===")
+            System.out.flush()
             return
         }
 
-        mc.displayGuiScreen(returnScreen)
-        TabChatManager.restoreForTab(tabId)
+        val safeReturnScreen = if (returnScreen is net.minecraft.client.gui.inventory.GuiContainer) {
+            GuiMainMenu()
+        } else {
+            returnScreen
+        }
+        System.out.println("[TabDebug][switchToTab] STEP 7: displayGuiScreen($safeReturnScreen)")
+        System.out.flush()
+        mc.displayGuiScreen(safeReturnScreen)
+        System.out.println("[TabDebug][switchToTab] === END switchToTab (displayGuiScreen) ===")
+        System.out.flush()
     }
 
     private fun requestClose(tabId: String, returnScreen: GuiScreen?) {
@@ -716,28 +357,20 @@ object ClientTabManager : Listenable, MinecraftInstance {
     private fun closeTab(tabId: String, returnScreen: GuiScreen?) {
         val tabToRemove = tabs.firstOrNull { it.id == tabId } ?: return
         val wasActive = tabToRemove.id == activeTabId
-        val fallback = tabs.firstOrNull { it.id != tabId && it.isMain }
-            ?: tabs.firstOrNull { it.id != tabId }
+        val fallback = tabs.firstOrNull { it.id != tabId }
 
         tabs.remove(tabToRemove)
-        clearMirroredInputState(tabId)
-        pendingMirroredReleaseTabs.remove(tabId)
-        clearLinkedBotState(tabId)
         contextMenu = null
-
-        if (tabs.none { it.isMain }) {
-            (fallback ?: tabs.firstOrNull())?.isMain = true
-        }
 
         if (!wasActive) {
             TabChatManager.clearTab(tabId)
             LiveTabRuntimeManager.removeRuntime(tabId)
-            if (activeTab?.isMain == true && canPersistToMainStorage()) {
-                FileManager.saveAllConfigs()
-            }
+            clearPerTabRenderCaches(tabId)
             mc.displayGuiScreen(returnScreen)
             return
         }
+
+        val previousActiveTabId = activeTabId
 
         if (mc.theWorld != null && activeTabId != null) {
             LiveTabRuntimeManager.captureCurrentRuntime(activeTabId!!)
@@ -746,70 +379,23 @@ object ClientTabManager : Listenable, MinecraftInstance {
 
         TabChatManager.clearTab(tabId)
         LiveTabRuntimeManager.removeRuntime(tabId)
+        clearPerTabRenderCaches(tabId)
 
         if (fallback != null) {
             applyTab(fallback.id, captureCurrent = false)
+            TabChatManager.saveCurrentAndSwitch(previousActiveTabId, fallback.id)
             if (!LiveTabRuntimeManager.activateRuntime(fallback.id)) {
                 LiveTabRuntimeManager.clearMinecraftRuntime(GuiMainMenu())
             }
-            TabChatManager.restoreForTab(fallback.id)
         } else {
             activeTabId = null
+            TabChatManager.saveCurrentAndSwitch(previousActiveTabId, null)
             LiveTabRuntimeManager.clearMinecraftRuntime(GuiMainMenu())
-            TabChatManager.restoreForTab(null)
-        }
-    }
-
-    private fun setMainTab(tabId: String) {
-        val target = tabs.firstOrNull { it.id == tabId } ?: return
-        tabs.forEach {
-            it.isMain = it.id == tabId
-            if (it.isMain) {
-                it.syncedToMain = false
-            }
-        }
-        contextMenu = null
-
-        if (target.id == activeTabId && canPersistToMainStorage()) {
-            FileManager.saveAllConfigs()
-            ClientUtils.displayAlert("${target.displayName} is now the main tab.")
-        } else {
-            ClientUtils.displayAlert("${target.displayName} will save to main storage when it becomes active.")
         }
     }
 
     private fun openAddTabScreen(returnScreen: GuiScreen?) {
         mc.displayGuiScreen(GuiAddClientTab(returnScreen))
-    }
-
-    private fun toggleSyncWithMain(tabId: String) {
-        val target = tabs.firstOrNull { it.id == tabId } ?: return
-        if (target.isMain) {
-            return
-        }
-
-        target.syncedToMain = !target.syncedToMain
-        contextMenu = null
-
-        if (target.syncedToMain) {
-            primeMirroredInputState(target.id)
-            pendingMirroredReleaseTabs.remove(target.id)
-            val sourceScreen = mainSourceScreen()
-            val sourceServerData = mainSourceServerData()
-            target.configSnapshot = mainSourceConfigSnapshot()
-            target.lastServerAddress = sourceServerData?.serverIP ?: mainTab?.lastServerAddress ?: target.lastServerAddress
-            LiveTabRuntimeManager.mirrorCurrentScreen(
-                target.id,
-                sourceScreen,
-                sourceServerData
-            )
-            ClientUtils.displayAlert("${target.displayName} is now synced with the main tab.")
-        } else {
-            pendingMirroredReleaseTabs += target.id
-            clearMirroredInputState(target.id)
-            clearLinkedBotState(target.id)
-            ClientUtils.displayAlert("${target.displayName} is no longer synced with the main tab.")
-        }
     }
 
     private fun drawOverlay(screenWidth: Int, screenHeight: Int, mouseX: Int, mouseY: Int) {
@@ -827,25 +413,20 @@ object ClientTabManager : Listenable, MinecraftInstance {
         layout.tabs.forEach { tabLayout ->
             val hovered = tabLayout.contains(mouseX, mouseY)
             val active = tabLayout.id == activeTabId
+            val tab = tabs.find { it.id == tabLayout.id }
+            val isWaiting = tab?.status == TabStatus.WAITING
             val fillColor = when {
                 active -> Color(accent.red, accent.green, accent.blue, 185).rgb
                 hovered -> Color(55, 55, 64, 220).rgb
                 else -> Color(34, 34, 42, 200).rgb
             }
-            val borderColor = if (tabLayout.isMain) {
-                Color(236, 185, 84, 220).rgb
-            } else {
-                Color(0, 0, 0, 80).rgb
-            }
+            val borderColor = Color(0, 0, 0, 80).rgb
 
             Gui.drawRect(tabLayout.x, BAR_Y + 2, tabLayout.x + tabLayout.width, BAR_Y + BAR_HEIGHT - 2, fillColor)
             Gui.drawRect(tabLayout.x, BAR_Y + 2, tabLayout.x + tabLayout.width, BAR_Y + 3, borderColor)
 
-            val labelColor = if (tabLayout.syncedToMain && !tabLayout.isMain) {
-                Color(236, 185, 84).rgb
-            } else {
-                0xFFFFFF
-            }
+            // Yellow text for waiting tabs, white for normal
+            val labelColor = if (isWaiting) 0xFFFFFF55.toInt() else 0xFFFFFF
             font.drawStringWithShadow(tabLayout.label, (tabLayout.x + TAB_PADDING).toFloat(), baseTextY.toFloat(), labelColor)
 
             val closeHover = tabLayout.isCloseHovered(mouseX, mouseY)
@@ -861,19 +442,28 @@ object ClientTabManager : Listenable, MinecraftInstance {
         Gui.drawRect(layout.plusRect.left, layout.plusRect.top, layout.plusRect.right, layout.plusRect.bottom, plusColor)
         font.drawStringWithShadow("+", (layout.plusRect.left + 6).toFloat(), baseTextY.toFloat(), 0xFFFFFF)
 
-        contextMenu?.let { menu ->
-            val menuTab = tabs.firstOrNull { it.id == menu.tabId } ?: return@let
-            if (menuTab.isMain) return@let
-
-            Gui.drawRect(menu.x, menu.y, menu.x + MENU_WIDTH, menu.y + MENU_HEIGHT, Color(24, 24, 29, 235).rgb)
-            Gui.drawRect(menu.x, menu.y, menu.x + MENU_WIDTH, menu.y + 1, Color(accent.red, accent.green, accent.blue, 180).rgb)
-            font.drawStringWithShadow("Set As Main Tab", (menu.x + 8).toFloat(), (menu.y + 6).toFloat(), 0xFFFFFF)
-            font.drawStringWithShadow(
-                if (menuTab.syncedToMain) "Stop Sync With Main" else "Sync With Main",
-                (menu.x + 8).toFloat(),
-                (menu.y + MENU_ITEM_HEIGHT + 6).toFloat(),
-                0xFFFFFF
-            )
+        // Draw tooltip for hovered tabs with status info
+        val hoveredTab = layout.tabs.find { it.contains(mouseX, mouseY) && !it.isCloseHovered(mouseX, mouseY) }
+        if (hoveredTab != null) {
+            val tab = tabs.find { it.id == hoveredTab.id }
+            if (tab != null) {
+                val tooltipLines = mutableListOf<String>()
+                tooltipLines.add("\u00a7e${tab.displayName}")
+                if (tab.status == TabStatus.WAITING) {
+                    tooltipLines.add("\u00a7eStatus: \u00a7fWaiting")
+                    tab.statusDetail?.let { tooltipLines.add("\u00a77$it") }
+                }
+                tab.lastServerAddress?.let { tooltipLines.add("\u00a77Server: \u00a7f$it") }
+                if (tooltipLines.size > 1) {
+                    val sr = ScaledResolution(mc)
+                    val drawX = mouseX.coerceAtMost(sr.scaledWidth - 150)
+                    val drawY = (BAR_Y + BAR_HEIGHT + 4).coerceAtMost(sr.scaledHeight - tooltipLines.size * 12 - 10)
+                    net.minecraft.client.gui.Gui.drawRect(drawX - 4, drawY - 4, drawX + 150, drawY + tooltipLines.size * 12 + 4, 0xE0101010.toInt())
+                    tooltipLines.forEachIndexed { i, line ->
+                        font.drawStringWithShadow(line, drawX.toFloat(), (drawY + i * 12).toFloat(), 0xFFFFFF)
+                    }
+                }
+            }
         }
     }
 
@@ -884,13 +474,7 @@ object ClientTabManager : Listenable, MinecraftInstance {
         contextMenu?.let { menu ->
             val inMenu = mouseX in menu.x..(menu.x + MENU_WIDTH) && mouseY in menu.y..(menu.y + MENU_HEIGHT)
             if (inMenu) {
-                if (mouseButton == 0) {
-                    val menuIndex = ((mouseY - menu.y) / MENU_ITEM_HEIGHT).coerceIn(0, 1)
-                    when (menuIndex) {
-                        0 -> setMainTab(menu.tabId)
-                        1 -> toggleSyncWithMain(menu.tabId)
-                    }
-                }
+                contextMenu = null
                 return true
             }
 
@@ -917,18 +501,6 @@ object ClientTabManager : Listenable, MinecraftInstance {
                         requestSwitch(clickedTab.id, returnScreen)
                     }
                 }
-
-                1 -> {
-                    contextMenu = if (clickedTab.isMain) {
-                        null
-                    } else {
-                        ContextMenu(
-                            clickedTab.id,
-                            mouseX.coerceAtMost(ScaledResolution(mc).scaledWidth - MENU_WIDTH - 4),
-                            (BAR_Y + BAR_HEIGHT + 4).coerceAtLeast(mouseY)
-                        )
-                    }
-                }
             }
             return true
         }
@@ -943,7 +515,7 @@ object ClientTabManager : Listenable, MinecraftInstance {
         val maxRight = screenWidth - RIGHT_RESERVED
 
         tabs.forEach { tab ->
-            val label = ellipsize(if (tab.isMain) "[M] ${tab.displayName}" else tab.displayName, 22)
+            val label = ellipsize(tab.displayName, 22)
             val width = (font.getStringWidth(label) + TAB_PADDING * 2 + 10).coerceIn(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
 
             if (x + width > maxRight) {
@@ -954,9 +526,7 @@ object ClientTabManager : Listenable, MinecraftInstance {
                 id = tab.id,
                 label = label,
                 x = x,
-                width = width,
-                isMain = tab.isMain,
-                syncedToMain = tab.syncedToMain
+                width = width
             )
             x += width + TAB_GAP
         }
@@ -974,7 +544,10 @@ object ClientTabManager : Listenable, MinecraftInstance {
     }
 
     private fun pollIngameMouse() {
-        if (mc.currentScreen != null || !shouldRenderOn(null) || !tabBarVisible) {
+        if (mc.currentScreen != null || !shouldRenderOn(null) || !tabBarVisible || Mouse.isGrabbed()) {
+            if (Mouse.isGrabbed() && contextMenu != null) {
+                contextMenu = null
+            }
             leftMouseDown = Mouse.isButtonDown(0)
             rightMouseDown = Mouse.isButtonDown(1)
             return
@@ -1011,15 +584,29 @@ object ClientTabManager : Listenable, MinecraftInstance {
     }
 
     val onTick = handler<GameTickEvent>(always = true) {
+        if (SessionRuntimeScope.isDetachedContextActive()) {
+            return@handler
+        }
+
+        // Process deferred tab switch
+        val switch = scheduledSwitch
+        if (switch != null) {
+            scheduledSwitch = null
+            switchToTab(switch.first, switch.second)
+        }
+
+        // Tick the automation system
+        net.asd.union.handler.automation.ClientAutomation.tick()
+
+        // Tick the multi-select join queue
+        MultiSelectJoinQueue.tick()
+
         activeTab?.let { tab ->
             mc.currentServerData?.serverIP?.let { tab.lastServerAddress = it }
         }
         LiveTabRuntimeManager.syncActiveRuntime(activeTabId)
-        refreshMirroredMainControlState()
-        pruneLinkedBotStates()
-        activeTabId?.let { primeMirroredInputState(it) }
         LiveTabRuntimeManager.tickBackgroundRuntimes(activeTabId)
-        syncTabsWithMainController()
+        TabChatManager.drainBackgroundChatQueue()
         pollIngameMouse()
     }
 
@@ -1040,9 +627,14 @@ object ClientTabManager : Listenable, MinecraftInstance {
         var sessionSnapshot: SessionSnapshot,
         var configSnapshot: TabConfigSnapshot,
         var lastServerAddress: String? = null,
-        var isMain: Boolean = false,
-        var syncedToMain: Boolean = false
+        var status: TabStatus = TabStatus.NORMAL,
+        var statusDetail: String? = null
     )
+
+    enum class TabStatus {
+        NORMAL,   // Default — nothing pending or finished
+        WAITING   // Yellow — waiting in queue to connect
+    }
 
     private data class SessionSnapshot(
         val username: String,
@@ -1055,7 +647,11 @@ object ClientTabManager : Listenable, MinecraftInstance {
         companion object {
             fun fromMinecraft(): SessionSnapshot? {
                 val session = MinecraftInstance.mc.session ?: return null
-                return SessionSnapshot(session.username, session.playerID, session.token, session.sessionType.name.lowercase())
+                val username = session.username ?: return null
+                val uuid = session.playerID ?: return null
+                val token = session.token ?: "-"
+                val type = session.sessionType?.name?.lowercase() ?: "legacy"
+                return SessionSnapshot(username, uuid, token, type)
             }
 
             fun offline(username: String): SessionSnapshot {
@@ -1074,9 +670,7 @@ object ClientTabManager : Listenable, MinecraftInstance {
         val id: String,
         val label: String,
         val x: Int,
-        val width: Int,
-        val isMain: Boolean,
-        val syncedToMain: Boolean
+        val width: Int
     ) {
         val closeX: Int
             get() = x + width - 12
@@ -1107,63 +701,7 @@ object ClientTabManager : Listenable, MinecraftInstance {
         val y: Int
     )
 
-    private fun syncedTabsForMainControl() = tabs.filter { it.syncedToMain && !it.isMain }
-
-    private fun syncTabsWithMainController() {
-        val syncedTabs = syncedTabsForMainControl()
-        val sourceScreen = mainSourceScreen()
-        val sourceServerData = mainSourceServerData()
-        val sourceWorldPresent = mainSourceWorldPresent()
-
-        if (syncedTabs.isEmpty()) {
-            lastMirroredConnectKey = null
-            lastMainWorldPresent = sourceWorldPresent
-            return
-        }
-
-        syncedTabs.forEach { tab ->
-            LiveTabRuntimeManager.mirrorCurrentScreen(tab.id, sourceScreen, sourceServerData)
-        }
-
-        val connectKey = if (sourceScreen is GuiConnecting && sourceServerData != null) {
-            "${sourceServerData.serverIP}#${System.identityHashCode(sourceScreen)}"
-        } else {
-            null
-        }
-
-        if (connectKey != null && connectKey != lastMirroredConnectKey) {
-            val sourceServerIp = sourceServerData?.serverIP ?: return
-            syncedTabs.forEach { tab ->
-                LiveTabRuntimeManager.connectRuntime(
-                    tab.id,
-                    tab.sessionSnapshot.toMinecraftSession(),
-                    ServerData("", sourceServerIp, false),
-                    sourceScreen
-                )
-            }
-        }
-
-        if (lastMainWorldPresent && !sourceWorldPresent && sourceScreen !is GuiConnecting) {
-            syncedTabs.forEach { tab ->
-                LiveTabRuntimeManager.disconnectRuntimeToScreen(tab.id, "Mirrored main disconnect", sourceScreen)
-            }
-        }
-
-        lastMirroredConnectKey = connectKey
-        lastMainWorldPresent = sourceWorldPresent
-    }
-
-    private data class MirroredLookState(
-        val rotationYaw: Float,
-        val rotationPitch: Float,
-        val rotationYawHead: Float,
-        val renderYawOffset: Float
-    )
-
-    private data class LinkedBotState(
-        val navigator: BaritoneNavigationSession,
-        var followCommand: PathFollowCommand = PathFollowCommand.idle(),
-        var lookTarget: Vec3? = null,
-        var nextAttackAt: Long = 0L
-    )
+    private const val MENU_WIDTH = 110
+    private const val MENU_ITEM_HEIGHT = 20
+    private const val MENU_HEIGHT = MENU_ITEM_HEIGHT * 1
 }

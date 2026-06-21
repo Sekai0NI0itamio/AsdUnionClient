@@ -168,6 +168,7 @@ The 1.8.9 port currently searches using these movement primitives:
 
 - `WALK`
 - `ASCEND`
+- `PARKOUR`
 - `DESCEND`
 - `FALL`
 
@@ -181,7 +182,8 @@ This is not full modern Baritone. Current limitations are intentional:
 - Only loaded terrain is considered pathable.
 - Liquids are treated as blocked.
 - Fences, walls, and similar awkward supports are rejected as landing nodes.
-- The current model does not try to break blocks, place blocks, use buckets, or do parkour.
+- The current model does not try to break blocks, place blocks, or use buckets.
+- Basic parkour jumps are supported, but the model is still far simpler than full Baritone.
 - Half-block terrain such as slabs and stairs is not fully modeled yet.
 
 Because of that, the safest general-purpose goal for modules is usually:
@@ -208,6 +210,7 @@ If you want to expand this later, the most natural next steps are:
 - diagonal moves
 - better stair/slab handling
 - water-aware traversal
+- more advanced parkour chains
 - async search worker
 - optional path rendering
 - block breaking/placement costs

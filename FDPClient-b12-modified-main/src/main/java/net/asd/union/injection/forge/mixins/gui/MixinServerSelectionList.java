@@ -22,6 +22,6 @@ public abstract class MixinServerSelectionList extends GuiSlot {
 
     @Inject(method = "getScrollBarX", at = @At("HEAD"), cancellable = true)
     private void scrollBarX(CallbackInfoReturnable<Integer> cir) {
-        cir.setReturnValue(width - 5);
+        cir.setReturnValue(right - 5);
     }
 }

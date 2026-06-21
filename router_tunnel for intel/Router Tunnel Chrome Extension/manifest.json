@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Router Tunnel",
+  "version": "2.0.0",
+  "description": "Route selected domains through RouterTunnel's local proxy, bypassing VPN. Routed pages show a green outline.",
+  "permissions": ["proxy", "storage", "webNavigation", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Router Tunnel"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

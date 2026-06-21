@@ -12,7 +12,7 @@ import net.asd.union.config.int
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.combat.KillAura
+import net.asd.union.features.module.modules.combat.AuraBridge
 import net.asd.union.utils.client.BlinkUtils
 import net.asd.union.utils.client.PacketUtils.sendPacket
 import net.asd.union.utils.extensions.isMoving
@@ -346,7 +346,7 @@ object NoSlow : Module("NoSlow", Category.MOVEMENT, gameDetecting = false, hideM
         swordMode == "UpdatedNCP" && mc.gameSettings.keyBindUseItem.isKeyDown && (mc.thePlayer.heldItem?.item is ItemSword)
 
     fun usingItemFunc() =
-        mc.thePlayer?.heldItem != null && (mc.thePlayer.isUsingItem || (mc.thePlayer.heldItem?.item is ItemSword && KillAura.blockStatus) || isUNCPBlocking())
+        mc.thePlayer?.heldItem != null && (mc.thePlayer.isUsingItem || (mc.thePlayer.heldItem?.item is ItemSword && AuraBridge.isBlocking()) || isUNCPBlocking())
 
     private fun updateSlot() {
         SilentHotbar.selectSlotSilently(this, (SilentHotbar.currentSlot + 1) % 9, immediate = true)

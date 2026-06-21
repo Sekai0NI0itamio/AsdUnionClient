@@ -29,14 +29,12 @@ import org.lwjgl.opengl.Display
 import java.awt.Color
 
 enum class AltNameMode(val displayName: String) {
-    MC_MINECRAFT("Mc Minecraft"),
-    STYLIZED("Stylised"),
-    LEGACY("Legacy");
+    REALISTIC("Realistic");
 
     companion object {
         fun fromString(value: String): AltNameMode = values().firstOrNull {
             it.displayName.equals(value, ignoreCase = true) || it.name.equals(value, ignoreCase = true)
-        } ?: MC_MINECRAFT
+        } ?: REALISTIC
     }
 
     fun next(): AltNameMode = values()[(ordinal + 1) % values().size]
@@ -46,7 +44,7 @@ class GuiClientConfiguration(val prevGui: GuiScreen) : AbstractScreen() {
 
     companion object {
         var enabledClientTitle = true
-        var altNameMode = AltNameMode.MC_MINECRAFT
+        var altNameMode = AltNameMode.REALISTIC
         var unformattedAlts = false
         var altsLength = 16
         var altsPrefix = ""
@@ -128,7 +126,7 @@ class GuiClientConfiguration(val prevGui: GuiScreen) : AbstractScreen() {
             height / 4 + 100 + buttonSpacing * 2,
             "Unformatted alt names (${if (unformattedAlts) "On" else "Off"})"
         ).also {
-            it.enabled = altNameMode == AltNameMode.STYLIZED
+            it.enabled = false
         }
 
         altPrefixField = GuiTextField(2, Fonts.font35, width / 2 - 100, height / 4 + 100 + buttonSpacing * 3, 200, 20)
@@ -143,7 +141,7 @@ class GuiClientConfiguration(val prevGui: GuiScreen) : AbstractScreen() {
     private fun refreshAltControls() {
         altsModeButton.displayString = "Random alts mode (${altNameMode.displayName})"
         unformattedAltsButton.displayString = "Unformatted alt names (${if (unformattedAlts) "On" else "Off"})"
-        unformattedAltsButton.enabled = altNameMode == AltNameMode.STYLIZED
+        unformattedAltsButton.enabled = false
         altsSlider.updateSlider()
     }
 

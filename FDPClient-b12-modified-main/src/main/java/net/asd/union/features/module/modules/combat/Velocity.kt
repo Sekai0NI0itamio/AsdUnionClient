@@ -364,7 +364,7 @@ object Velocity : Module("Velocity", Category.COMBAT, hideModule = false) {
 
         mc.theWorld ?: return@handler
 
-        if (mode != "Click" || thePlayer.hurtTime != hurtTimeToClick || ignoreBlocking && (thePlayer.isBlocking || KillAura.blockStatus))
+        if (mode != "Click" || thePlayer.hurtTime != hurtTimeToClick || ignoreBlocking && (thePlayer.isBlocking || AuraBridge.isBlocking()))
             return@handler
 
         var entity = mc.objectMouseOver?.entityHit

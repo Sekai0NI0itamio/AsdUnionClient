@@ -32,20 +32,28 @@ public abstract class MixinGuiIngameMenu extends MixinGuiScreen {
         }
     }
 
-    @Inject(method = "actionPerformed", at = @At("HEAD"))
+    @Inject(method = "actionPerformed", at = @At("HEAD"), cancellable = true)
     private void actionPerformed(GuiButton button, CallbackInfo callbackInfo) {
-
         if (button.id == 1337) {
             mc.theWorld.sendQuittingDisconnectingPacket();
             ServerUtils.INSTANCE.connectToLastServer();
+            callbackInfo.cancel();
         }
 
         if (button.id == 1078) {
             mc.displayGuiScreen(FDPClient.INSTANCE.getKeyBindManager());
+            callbackInfo.cancel();
         }
 
         if (button.id == 1068) {
             mc.displayGuiScreen(new GuiMultiplayer((GuiScreen) (Object) this));
+            callbackInfo.cancel();
+        }
+
+        if (button.id == 1) {
+            mc.theWorld.sendQuittingDisconnectingPacket();
+            ServerUtils.INSTANCE.connectToLastServer();
+            callbackInfo.cancel();
         }
     }
 }

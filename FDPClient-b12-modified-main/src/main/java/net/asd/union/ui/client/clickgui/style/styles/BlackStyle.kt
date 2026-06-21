@@ -85,7 +85,23 @@ object BlackStyle : Style() {
         val textField = ensureTextEdit(value, x, y, width, initialText)
 
         if (width > 0) {
-            textField.mouseClicked(clickX.coerceIn(x, x + width), y + textField.height / 2, 0)
+            // GuiTextField.mouseClicked uses mc.fontRendererObj (vanilla font) to calculate cursor
+            // position, but we render with font35 (custom AWT font). Calculate the correct cursor
+            // index ourselves using font35 so clicking lands on the right character.
+            val text = textField.getText()
+            val relativeX = clickX.coerceIn(x, x + width) - x
+            var cursorIndex = text.length // default: end of string
+            for (i in text.indices) {
+                val charWidth = font35.getStringWidth(text.substring(0, i + 1))
+                if (charWidth > relativeX) {
+                    // Check if click is closer to left edge of this char or right edge of previous
+                    val prevWidth = if (i > 0) font35.getStringWidth(text.substring(0, i)) else 0
+                    cursorIndex = if (relativeX - prevWidth < charWidth - relativeX) i else i + 1
+                    break
+                }
+            }
+            textField.setCursorPosition(cursorIndex)
+            textField.setSelectionPos(cursorIndex)
         }
 
         return textField
@@ -307,11 +323,13 @@ object BlackStyle : Style() {
 
                             if (mouseButton == 0 && mouseX in minX..maxX && mouseY in y - 2..y + 5 || sliderValueHeld == value) {
                                 val percentage = (mouseX - x) / width.toFloat()
-                                value.setAndSaveValueOnButtonRelease(
-                                    round(value.minimum + (value.maximum - value.minimum) * percentage).coerceIn(
-                                        value.range
-                                    )
-                                )
+                                val rawValue = value.minimum + (value.maximum - value.minimum) * percentage
+                                val snapped = if (value.step > 0f) {
+                                    (Math.round(rawValue / value.step) * value.step).coerceIn(value.range)
+                                } else {
+                                    round(rawValue).coerceIn(value.range)
+                                }
+                                value.setAndSaveValueOnButtonRelease(snapped)
 
                                 sliderValueHeld = value
 
@@ -509,7 +527,20 @@ object BlackStyle : Style() {
 
                                 if (mouseButton == 0) {
                                     if (isHovered(minX, minX + editorWidth, inputY, inputY + 12, mouseX, mouseY)) {
-                                        textField.mouseClicked(mouseX, mouseY, mouseButton)
+                                        // Recalculate cursor position using font35 so click lands on the right character
+                                        val text = textField.getText()
+                                        val relativeX = mouseX - minX
+                                        var cursorIndex = text.length
+                                        for (i in text.indices) {
+                                            val charWidth = font35.getStringWidth(text.substring(0, i + 1))
+                                            if (charWidth > relativeX) {
+                                                val prevWidth = if (i > 0) font35.getStringWidth(text.substring(0, i)) else 0
+                                                cursorIndex = if (relativeX - prevWidth < charWidth - relativeX) i else i + 1
+                                                break
+                                            }
+                                        }
+                                        textField.setCursorPosition(cursorIndex)
+                                        textField.setSelectionPos(cursorIndex)
                                         return true
                                     }
 

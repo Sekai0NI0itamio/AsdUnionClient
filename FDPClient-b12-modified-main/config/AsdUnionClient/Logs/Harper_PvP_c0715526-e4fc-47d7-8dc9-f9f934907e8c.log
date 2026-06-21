@@ -1,0 +1,4 @@
+2026-04-27 13:12:48.865 [Client thread/INFO] AsdUnionClient - [TabRuntime][Harper_PvP/c0715526-e4fc-47d7-8dc9-f9f934907e8c] Background tick health: world=true, player=true, openChannel=true, queuedTasks=0, pos=-2.09, 70.00, -3.69
+2026-04-27 13:12:50.230 [Client thread/INFO] AsdUnionClient - [TabRuntime][Harper_PvP/c0715526-e4fc-47d7-8dc9-f9f934907e8c] Background tick health: world=true, player=true, openChannel=true, queuedTasks=0, pos=-2.09, 70.00, -3.69
+2026-04-27 13:12:51.531 [Client thread/INFO] AsdUnionClient - [TabRuntime][Harper_PvP/c0715526-e4fc-47d7-8dc9-f9f934907e8c] Background tick health: world=true, player=true, openChannel=true, queuedTasks=0, pos=-2.07, 70.00, -3.65
+2026-04-27 13:12:52.597 [Client thread/WARN] AsdUnionClient - [TabRuntime][Harper_PvP/c0715526-e4fc-47d7-8dc9-f9f934907e8c] Server disconnected runtime: Disconnected

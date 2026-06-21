@@ -9,6 +9,8 @@ import net.asd.union.event.RotationSetEvent;
 import net.asd.union.features.module.modules.combat.ProjectileVelocity;
 import net.asd.union.features.module.modules.combat.RodVelocity;
 import net.asd.union.features.module.modules.visual.FreeCam;
+import net.asd.union.handler.sessiontabs.LiveTabRuntimeManager;
+import net.asd.union.handler.sessiontabs.TabSimulationThread;
 import net.asd.union.injection.implementations.IMixinEntity;
 import net.asd.union.event.EventManager;
 import net.asd.union.event.StrafeEvent;
@@ -39,6 +41,19 @@ import static net.asd.union.utils.client.MinecraftInstance.mc;
 @Mixin(Entity.class)
 @SideOnly(Side.CLIENT)
 public abstract class MixinEntity implements IMixinEntity {
+
+    /**
+     * Check if this entity is the current context's player.
+     * On a simulation thread, mc.thePlayer is the foreground player,
+     * so we check the runtime's player instead.
+     */
+    private boolean fdp$isContextPlayer() {
+        if (Thread.currentThread() instanceof TabSimulationThread) {
+            TabSimulationThread simThread = (TabSimulationThread) Thread.currentThread();
+            return (Object) this == simThread.getRuntime().getPlayer();
+        }
+        return (Object) this == mc.thePlayer;
+    }
 
     @Shadow
     public double posX;
@@ -243,7 +258,7 @@ public abstract class MixinEntity implements IMixinEntity {
     }
 
     private void fdp$handleIncomingVelocity(String stage, double x, double y, double z, CallbackInfo ci) {
-        if ((Object) this != mc.thePlayer) {
+        if (!fdp$isContextPlayer()) {
             return;
         }
 
@@ -283,7 +298,7 @@ public abstract class MixinEntity implements IMixinEntity {
     @Inject(method = "moveFlying", at = @At("HEAD"), cancellable = true)
     private void handleRotations(float strafe, float forward, float friction, final CallbackInfo callbackInfo) {
         //noinspection ConstantConditions
-        if ((Object) this != mc.thePlayer) return;
+        if (!fdp$isContextPlayer()) return;
 
         final StrafeEvent strafeEvent = new StrafeEvent(strafe, forward, friction);
         EventManager.INSTANCE.call(strafeEvent);
@@ -298,7 +313,7 @@ public abstract class MixinEntity implements IMixinEntity {
 
     @Inject(method = "setAngles", at = @At("HEAD"), cancellable = true)
     private void injectRotationSetEvent(float yaw, float pitch, CallbackInfo ci) {
-        if ((Object) this != mc.thePlayer)
+        if (!fdp$isContextPlayer())
             return;
 
         RotationSetEvent event = new RotationSetEvent((float) (yaw * 0.15), (float) (pitch * 0.15));

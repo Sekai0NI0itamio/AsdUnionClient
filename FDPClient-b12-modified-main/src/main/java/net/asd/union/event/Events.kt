@@ -200,6 +200,18 @@ class StepEvent(var stepHeight: Float) : Event()
 object StepConfirmEvent : Event()
 
 /**
+ * Called right before timer.updateTimer() in runGameLoop.
+ * Used to set timerSpeed before tick count is determined, without affecting rendering.
+ */
+object PreTickEvent : Event()
+
+/**
+ * Called every runGameLoop frame, regardless of timerSpeed.
+ * Used to keep keybinds and module ticks alive when the game timer is frozen.
+ */
+object ClientTickEvent : Event()
+
+/**
  * tick... tack... tick... tack
  */
 object GameTickEvent : Event()
@@ -249,6 +261,8 @@ class ClickWindowEvent(val windowId: Int, val slotId: Int, val mouseButtonClicke
 object StartupEvent : Event()
 
 internal val ALL_EVENT_CLASSES = arrayOf(
+    PreTickEvent::class.java,
+    ClientTickEvent::class.java,
     PlayerTickEvent::class.java,
     StepConfirmEvent::class.java,
     SessionUpdateEvent::class.java,

@@ -57,11 +57,20 @@ public abstract class MixinGuiNewChat {
 
     @Inject(method = "printChatMessageWithOptionalDeletion", at = @At("HEAD"), cancellable = true)
     private void fdp$routeDetachedChat(IChatComponent chatComponent, int chatLineId, CallbackInfo callbackInfo) {
+        // Simulation threads should not render chat on the foreground tab
+        if (Thread.currentThread() instanceof net.asd.union.handler.sessiontabs.TabSimulationThread) {
+            callbackInfo.cancel();
+            return;
+        }
+
         if (!SessionRuntimeScope.INSTANCE.isDetachedContextActive()) {
             return;
         }
 
-        TabChatManager.INSTANCE.recordDetachedChatMessage(chatComponent, chatLineId);
+        // The TAIL injection (fdp$capturePrintedChat) will record this message into
+        // the active detached runtime's history. We only need to cancel here so
+        // the message is NOT added to the active tab's GuiNewChat (the foreground
+        // tab would otherwise see another tab's chat line).
         callbackInfo.cancel();
     }
 

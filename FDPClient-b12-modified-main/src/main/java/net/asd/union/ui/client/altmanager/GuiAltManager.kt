@@ -413,19 +413,23 @@ class GuiAltManager(private val prevGui: GuiScreen) : AbstractScreen() {
         ) = SharedScopes.IO.launch {
             try {
                 minecraftAccount.update()
-                mc.session = Session(
-                    minecraftAccount.session.username,
-                    minecraftAccount.session.uuid,
-                    minecraftAccount.session.token,
-                    "microsoft"
-                )
-                EventManager.call(SessionUpdateEvent)
-
-                success()
+                mc.addScheduledTask {
+                    mc.session = Session(
+                        minecraftAccount.session.username,
+                        minecraftAccount.session.uuid,
+                        minecraftAccount.session.token,
+                        minecraftAccount.session.type ?: "microsoft"
+                    )
+                    EventManager.call(SessionUpdateEvent)
+                    success()
+                    done()
+                }
             } catch (exception: Exception) {
-                error(exception)
+                mc.addScheduledTask {
+                    error(exception)
+                    done()
+                }
             }
-            done()
         }
     }
 }

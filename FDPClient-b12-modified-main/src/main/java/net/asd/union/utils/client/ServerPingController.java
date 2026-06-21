@@ -2,6 +2,8 @@ package net.asd.union.utils.client;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
+import net.asd.union.handler.network.ConnectToRouter;
+import net.asd.union.handler.sessiontabs.LiveTabRuntimeManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -55,9 +57,16 @@ public final class ServerPingController {
         int newGeneration = REFRESH_GENERATION.incrementAndGet();
         cancelObsoletePingTasks(newGeneration);
         cancelObsoleteConnects(newGeneration);
-        
-        // Send a refresh packet to the tunnel to signal cleanup of old connections
-        refreshTunnelConnection();
+
+        if (shouldRefreshTunnelConnection()) {
+            refreshTunnelConnection();
+        }
+    }
+
+    private static boolean shouldRefreshTunnelConnection() {
+        boolean tunnelActive = ConnectToRouter.INSTANCE.getEnabled()
+                && (ConnectToRouter.INSTANCE.isTunnelMode() || ConnectToRouter.INSTANCE.getTunnelAvailable());
+        return tunnelActive && !LiveTabRuntimeManager.INSTANCE.hasLiveConnections();
     }
     
     private static void refreshTunnelConnection() {
@@ -91,10 +100,8 @@ public final class ServerPingController {
     }
 
     public static boolean isServerPingerThread() {
-        return THREAD_GENERATION.get() != null || 
-               Thread.currentThread().getName().startsWith("Server Pinger") ||
-               Thread.currentThread().getName().startsWith("Netty Client IO") ||
-               Thread.currentThread().getName().startsWith("Server Connector");
+        return THREAD_GENERATION.get() != null
+                || Thread.currentThread().getName().startsWith("Server Pinger");
     }
 
     public static boolean shouldCancelCurrentPing() {

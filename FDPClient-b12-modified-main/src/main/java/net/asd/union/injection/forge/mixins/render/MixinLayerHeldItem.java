@@ -5,7 +5,7 @@
  */
 package net.asd.union.injection.forge.mixins.render;
 
-import net.asd.union.features.module.modules.combat.KillAura;
+import net.asd.union.features.module.modules.combat.AuraBridge;
 import net.asd.union.features.module.modules.movement.NoSlow;
 import net.asd.union.utils.inventory.SilentHotbar;
 import net.minecraft.block.Block;
@@ -63,7 +63,7 @@ public class MixinLayerHeldItem {
             final UUID uuid = entity.getUniqueID();
             final EntityPlayer entityplayer = mc.theWorld.getPlayerEntityByUUID(uuid);
 
-            if (entityplayer != null && (entityplayer.isBlocking() || entityplayer instanceof EntityPlayerSP && ((itemstack.getItem() instanceof ItemSword && KillAura.INSTANCE.getRenderBlocking()) || NoSlow.INSTANCE.isUNCPBlocking()))) {
+            if (entityplayer != null && (entityplayer.isBlocking() || entityplayer instanceof EntityPlayerSP && ((itemstack.getItem() instanceof ItemSword && AuraBridge.isRenderBlocking()) || NoSlow.INSTANCE.isUNCPBlocking()))) {
                 if (entity.isSneaking()) {
                     ((ModelBiped) livingEntityRenderer.getMainModel()).postRenderArm(0.0325F);
                     translate(-0.58F, 0.3F, -0.2F);

@@ -9,7 +9,7 @@ import net.asd.union.config.*
 import net.asd.union.event.*
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.combat.KillAura
+import net.asd.union.features.module.modules.combat.AuraBridge
 import net.asd.union.ui.font.Fonts
 import net.asd.union.utils.block.*
 import net.asd.union.utils.block.BlockUtils.getBlockName
@@ -121,7 +121,7 @@ object Fucker : Module("Fucker", Category.OTHER, hideModule = false) {
         val player = mc.thePlayer ?: return@handler
         val world = mc.theWorld ?: return@handler
 
-        if (noHit && KillAura.handleEvents() && KillAura.target != null) {
+        if (noHit && AuraBridge.getActiveTarget() != null) {
             return@handler
         }
 

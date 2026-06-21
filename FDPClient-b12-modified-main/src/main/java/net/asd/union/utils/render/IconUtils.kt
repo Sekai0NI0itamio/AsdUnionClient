@@ -11,6 +11,7 @@ import net.minecraftforge.fml.relauncher.Side
 import net.minecraftforge.fml.relauncher.SideOnly
 import java.io.IOException
 import java.io.InputStream
+import java.nio.Buffer
 import java.nio.ByteBuffer
 import java.util.*
 import javax.imageio.ImageIO
@@ -33,7 +34,7 @@ object IconUtils {
         val byteBuffer = ByteBuffer.allocate(4 * rgb.size)
         for (i in rgb)
             byteBuffer.putInt(i shl 8 or (i shr 24 and 255))
-        byteBuffer.flip()
+        (byteBuffer as Buffer).flip()
         return byteBuffer
     }
 }

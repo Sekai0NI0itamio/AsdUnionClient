@@ -385,67 +385,95 @@ object RotationUtils : MinecraftInstance, Listenable {
             pitchDiff = (pitchDiff * slowdown()).withGCD()
         }
 
-        var (straightLineYaw, straightLinePitch) =
-            abs(yawDiff safeDiv rotationDifference) * hSpeed to abs(pitchDiff safeDiv rotationDifference) * vSpeed
-
-        straightLineYaw = yawDiff.coerceIn(-straightLineYaw, straightLineYaw)
-        straightLinePitch = pitchDiff.coerceIn(-straightLinePitch, straightLinePitch)
-
         val (minYaw, minPitch) = {
             nextFloat(min(minRotationDiff, getFixedAngleDelta()), minRotationDiff).withGCD()
         }.let {
             it() to it()
         }
 
-        applySlowDown(straightLineYaw, minYaw, true, legitimize) {
-            straightLineYaw = it
-        }
-
-        applySlowDown(straightLinePitch, minPitch, false, legitimize) {
-            straightLinePitch = it
-        }
+        val straightLineYaw = adaptiveAxisStep(
+            diff = yawDiff,
+            previousStep = angleDifferences(serverRotation, lastRotations[1]).x,
+            maxSpeed = hSpeed,
+            minStep = minYaw,
+            totalDifference = rotationDifference,
+            applyRealism = legitimize,
+        )
+        val straightLinePitch = adaptiveAxisStep(
+            diff = pitchDiff,
+            previousStep = angleDifferences(serverRotation, lastRotations[1]).y,
+            maxSpeed = vSpeed,
+            minStep = minPitch,
+            totalDifference = rotationDifference,
+            applyRealism = legitimize,
+        )
 
         return currentRotation.plus(Rotation(straightLineYaw, straightLinePitch))
     }
 
-    private fun applySlowDown(diff: Float, min: Float, yaw: Boolean, applyRealism: Boolean, action: (Float) -> Unit) {
+    private fun adaptiveAxisStep(
+        diff: Float,
+        previousStep: Float,
+        maxSpeed: Float,
+        minStep: Float,
+        totalDifference: Float,
+        applyRealism: Boolean,
+    ): Float {
         if (diff == 0f) {
-            action(diff)
-            return
-        }
-
-        val lastTick1 = angleDifferences(serverRotation, lastRotations[1]).let { diffs ->
-            if (yaw) diffs.x else diffs.y
+            return 0f
         }
 
         val diffAbs = abs(diff)
+        val previousAbs = abs(previousStep)
+        val direction = diff.sign.takeIf { it != 0f } ?: 1f
+        val previousDirection = previousStep.sign.takeIf { it != 0f } ?: direction
+        val changingDirection = previousDirection != direction
 
-        if (lastTick1 == 0f && diffAbs.withGCD() <= min) {
-            action(0f)
-            return
+        if (previousStep == 0f && diffAbs.withGCD() <= minStep) {
+            return 0f
         }
 
         if (!applyRealism) {
-            action(diff)
-            return
-        }
-
-        val range = when {
-            lastTick1 == 0f -> {
-                val inc = 0.2f * (diffAbs / 50f).coerceIn(0f, 1f)
-
-                0.1F + inc..0.5F + inc
+            val limited = diff.coerceIn(-maxSpeed, maxSpeed)
+            return when {
+                abs(limited) >= diffAbs -> diff
+                abs(limited) < minStep && diffAbs >= minStep -> direction * minStep
+                else -> limited.withGCD()
             }
-
-            else -> 0.3f..0.7f
         }
 
-        val new = (lastTick1..diff).lerpWith(range.random())
+        val normalizedDistance = (diffAbs / 180f).coerceIn(0f, 1f)
+        val normalizedTotal = (totalDifference / 180f).coerceIn(0f, 1f)
+        val speedCap = (minStep + (maxSpeed - minStep) * sqrt(normalizedDistance.toDouble()).toFloat())
+            .coerceIn(minStep, maxSpeed)
+        val accelerationCap = (minStep + maxSpeed * (0.22f + normalizedTotal * 0.33f))
+            .coerceAtMost(speedCap)
 
-        if (abs(new.withGCD()) <= min && diffAbs <= abs(lastTick1)) {
-            action(diff)
-        } else {
-            action(new)
+        var nextSpeed = when {
+            changingDirection -> minStep
+            previousAbs <= minStep -> (minStep + speedCap * 0.45f).coerceAtMost(speedCap)
+            else -> (previousAbs + accelerationCap).coerceAtMost(speedCap)
+        }
+
+        if (diffAbs < speedCap) {
+            val damping = (0.55f + normalizedDistance * 0.45f).coerceIn(0.55f, 1f)
+            nextSpeed = max(minStep, nextSpeed * damping)
+        }
+
+        val errorRange = (min(minStep * 0.35f, nextSpeed * 0.08f)).coerceAtLeast(0f)
+        if (errorRange > 0f && diffAbs > minStep * 2f) {
+            nextSpeed += nextFloat(-errorRange, errorRange)
+        }
+
+        nextSpeed = nextSpeed.coerceIn(minStep, speedCap)
+
+        val clamped = min(diffAbs, nextSpeed) * direction
+        val gcdStep = clamped.withGCD()
+
+        return when {
+            abs(gcdStep) >= diffAbs -> diff
+            abs(gcdStep) < minStep && diffAbs >= minStep -> (direction * minStep).withGCD()
+            else -> gcdStep
         }
     }
 

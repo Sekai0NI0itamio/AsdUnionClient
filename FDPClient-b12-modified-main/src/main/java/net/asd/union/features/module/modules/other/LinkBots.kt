@@ -7,9 +7,8 @@ import org.lwjgl.input.Keyboard
 
 object LinkBots : Module("LinkBots", Category.OTHER, Keyboard.KEY_NONE, gameDetecting = false, hideModule = false) {
 
-    fun isLinkedControlActive(): Boolean = state && ClientTabManager.isMainTabActive()
+    fun isLinkedControlActive(): Boolean = state
 
     override fun onDisable() {
-        ClientTabManager.clearLinkedBotRuntimeState()
     }
 }

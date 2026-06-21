@@ -272,6 +272,7 @@ open class FloatValue(
     val range: ClosedFloatingPointRange<Float> = 0f..Float.MAX_VALUE,
     suffix: String? = null,
     subjective: Boolean = false,
+    val step: Float = 0f,
     isSupported: (() -> Boolean)? = null,
 ) : Value<Float>(name, value, subjective, isSupported, suffix) {
 
@@ -510,8 +511,8 @@ fun int(
 
 fun float(
     name: String, value: Float, range: ClosedFloatingPointRange<Float> = 0f..Float.MAX_VALUE, suffix: String? = null,
-    subjective: Boolean = false, isSupported: (() -> Boolean)? = null
-) = FloatValue(name, value, range, suffix, subjective, isSupported)
+    subjective: Boolean = false, step: Float = 0f, isSupported: (() -> Boolean)? = null
+) = FloatValue(name, value, range, suffix, subjective, step = step, isSupported = isSupported)
 
 fun choices(
     name: String, values: Array<String>, value: String, subjective: Boolean = false,

@@ -6,6 +6,7 @@
 package net.asd.union.file.configs
 
 import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import com.google.gson.JsonSyntaxException
 import me.liuli.elixir.account.CrackedAccount
 import me.liuli.elixir.account.MinecraftAccount
@@ -22,6 +23,12 @@ class AccountsConfig(file: File) : FileConfig(file) {
     val accounts = mutableListOf<MinecraftAccount>()
 
     /**
+     * When enabled, account creation will attempt to resolve the username's real
+     * Mojang UUID so the session presents a proper UUID to servers.
+     */
+    var properOfflineAccounts: Boolean = false
+
+    /**
      * Load config from file
      *
      * @throws IOException
@@ -29,7 +36,16 @@ class AccountsConfig(file: File) : FileConfig(file) {
     @Throws(IOException::class)
     override fun loadConfig() {
         clearAccounts()
-        val json = file.readJson() as? JsonArray ?: return
+        val root = file.readJson()
+
+        // Support both legacy bare-array format and new object format
+        val json: JsonArray
+        if (root is JsonObject) {
+            properOfflineAccounts = root.get("properOfflineAccounts")?.asBoolean ?: false
+            json = root.getAsJsonArray("accounts") ?: return
+        } else {
+            json = root as? JsonArray ?: return
+        }
 
         for (accountElement in json) {
             val accountObject = accountElement.asJsonObject
@@ -83,7 +99,11 @@ class AccountsConfig(file: File) : FileConfig(file) {
         for (minecraftAccount in accounts)
             jsonArray.add(toJson(minecraftAccount))
 
-        file.writeText(PRETTY_GSON.toJson(jsonArray))
+        val root = JsonObject()
+        root.addProperty("properOfflineAccounts", properOfflineAccounts)
+        root.add("accounts", jsonArray)
+
+        file.writeText(PRETTY_GSON.toJson(root))
     }
 
     /**

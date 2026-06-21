@@ -3,7 +3,6 @@ package net.asd.union.handler.other
 import net.asd.union.event.Listenable
 import net.asd.union.event.SessionUpdateEvent
 import net.asd.union.event.handler
-import net.asd.union.file.FileManager
 import net.asd.union.utils.client.MinecraftInstance
 import net.minecraft.util.Session
 import java.util.UUID
@@ -38,6 +37,6 @@ object SessionStorage : Listenable, MinecraftInstance {
         }
 
         lastUsername = username
-        FileManager.saveConfig(FileManager.valuesConfig, false)
+        ConfigSync.requestSessionStorageSave()
     }
 }

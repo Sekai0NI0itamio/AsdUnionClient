@@ -5,6 +5,9 @@
  */
 package net.asd.union.handler.render
 
+import net.asd.union.handler.sessiontabs.ClientTabManager
+import net.asd.union.handler.sessiontabs.SessionRuntimeScope
+import net.asd.union.handler.sessiontabs.TabSimulationThread
 import net.asd.union.utils.client.ClientUtils
 import java.util.concurrent.ConcurrentHashMap
 
@@ -19,45 +22,95 @@ object LazyChunkCache {
             ClientUtils.LOGGER.info("[LazyChunkCache]${if (value) "Enabled" else "Disabled"}")
 
             if (!value) {
-                clear()
+                clearAllContexts()
             }
         }
 
-    private val cache = ConcurrentHashMap.newKeySet<Long>()
+    private data class CacheState(
+        val chunks: MutableSet<Long> = ConcurrentHashMap.newKeySet(),
+        @Volatile var skippedCount: Int = 0
+    )
+
+    private val cacheByContext = ConcurrentHashMap<String, CacheState>()
 
     @Volatile
     var skippedCount = 0
         private set
+
+    private fun currentContextKey(): String {
+        return SessionRuntimeScope.currentRuntime()?.tabId
+            ?: (Thread.currentThread() as? TabSimulationThread)?.runtime?.tabId
+            ?: ClientTabManager.currentTabId()
+            ?: "__global__"
+    }
+
+    private fun currentCacheState(): CacheState {
+        return cacheByContext.computeIfAbsent(currentContextKey()) { CacheState() }
+    }
+
+    private fun refreshVisibleSkippedCount() {
+        skippedCount = currentCacheState().skippedCount
+    }
+
+    private fun totalCachedChunks(): Int {
+        return cacheByContext.values.sumOf { it.chunks.size }
+    }
 
     private fun key(chunkX: Int, chunkZ: Int): Long {
         return (chunkX.toLong() shl 32) or (chunkZ.toLong() and 0xffffffffL)
     }
 
     fun contains(chunkX: Int, chunkZ: Int): Boolean {
-        return cache.contains(key(chunkX, chunkZ))
+        return currentCacheState().chunks.contains(key(chunkX, chunkZ))
     }
 
     fun add(chunkX: Int, chunkZ: Int) {
-        cache.add(key(chunkX, chunkZ))
+        currentCacheState().chunks.add(key(chunkX, chunkZ))
     }
 
     fun remove(chunkX: Int, chunkZ: Int) {
-        cache.remove(key(chunkX, chunkZ))
+        currentCacheState().chunks.remove(key(chunkX, chunkZ))
     }
 
     fun clear() {
-        val clearedChunks = cache.size
-        cache.clear()
-        skippedCount = 0
+        val contextKey = currentContextKey()
+        val clearedChunks = cacheByContext.remove(contextKey)?.chunks?.size ?: 0
+        refreshVisibleSkippedCount()
 
         if (clearedChunks > 0) {
-            ClientUtils.LOGGER.info("[LazyChunkCache] Cleared$clearedChunks cached chunks")
+            ClientUtils.LOGGER.info("[LazyChunkCache][$contextKey] Cleared $clearedChunks cached chunks")
         }
     }
 
     fun recordSkip() {
-        skippedCount += 1
+        val state = currentCacheState()
+        state.skippedCount += 1
+        skippedCount = state.skippedCount
     }
 
-    fun getCacheSize(): Int = cache.size
+    fun getCacheSize(): Int = currentCacheState().chunks.size
+
+    fun clearContext(contextKey: String) {
+        val clearedChunks = cacheByContext.remove(contextKey)?.chunks?.size ?: 0
+
+        if (currentContextKey() == contextKey) {
+            refreshVisibleSkippedCount()
+        } else if (cacheByContext.isEmpty()) {
+            skippedCount = 0
+        }
+
+        if (clearedChunks > 0) {
+            ClientUtils.LOGGER.info("[LazyChunkCache][$contextKey] Cleared $clearedChunks cached chunks")
+        }
+    }
+
+    fun clearAllContexts() {
+        val clearedChunks = totalCachedChunks()
+        cacheByContext.clear()
+        skippedCount = 0
+
+        if (clearedChunks > 0) {
+            ClientUtils.LOGGER.info("[LazyChunkCache] Cleared $clearedChunks cached chunks across all contexts")
+        }
+    }
 }

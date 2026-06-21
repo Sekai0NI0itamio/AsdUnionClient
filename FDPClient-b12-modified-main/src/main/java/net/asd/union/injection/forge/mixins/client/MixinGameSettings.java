@@ -28,9 +28,13 @@ public class MixinGameSettings {
 
     @Inject(method = "isKeyDown", at = @At("HEAD"), cancellable = true)
     private static void fdp$blockDetachedKeyState(final KeyBinding keyBinding, final CallbackInfoReturnable<Boolean> callbackInfoReturnable) {
+        // Background tab simulation threads should never trigger key bindings
+        if (Thread.currentThread() instanceof net.asd.union.handler.sessiontabs.TabSimulationThread) {
+            callbackInfoReturnable.setReturnValue(false);
+            return;
+        }
         if (SessionRuntimeScope.INSTANCE.isDetachedContextActive()) {
-            Boolean mirroredState = SessionRuntimeScope.INSTANCE.resolveDetachedKeyState(keyBinding);
-            callbackInfoReturnable.setReturnValue(mirroredState != null ? mirroredState : false);
+            callbackInfoReturnable.setReturnValue(false);
         }
     }
 

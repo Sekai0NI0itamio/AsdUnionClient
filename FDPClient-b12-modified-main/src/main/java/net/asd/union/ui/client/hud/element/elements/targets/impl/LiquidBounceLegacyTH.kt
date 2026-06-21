@@ -6,7 +6,7 @@
 package net.asd.union.ui.client.hud.element.elements.targets.impl
 
 import net.asd.union.config.*
-import net.asd.union.features.module.modules.combat.KillAura
+import net.asd.union.features.module.modules.combat.AuraBridge
 import net.asd.union.ui.client.hud.element.Border
 import net.asd.union.ui.client.hud.element.elements.Targets
 import net.asd.union.ui.font.Fonts
@@ -86,8 +86,9 @@ class LiquidBounceLegacyTH(inst: Targets) : TargetStyle("LiquidBounce", inst, tr
     private var delayCounter = 0
 
     override fun drawTarget(entity: EntityLivingBase) {
-        val target = KillAura.target ?: if (delayCounter >= vanishDelay) mc.thePlayer else lastTarget ?: mc.thePlayer
-        val shouldRender = (KillAura.handleEvents() && KillAura.target != null || mc.currentScreen is GuiChat)
+        val auraTarget = AuraBridge.getActiveTarget()
+        val target = auraTarget ?: if (delayCounter >= vanishDelay) mc.thePlayer else lastTarget ?: mc.thePlayer
+        val shouldRender = (AuraBridge.isAuraActive() && auraTarget != null || mc.currentScreen is GuiChat)
         val smoothMode = animation == "Smooth"
         val fadeMode = animation == "Fade"
 

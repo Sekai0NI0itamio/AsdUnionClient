@@ -32,6 +32,7 @@
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -47,13 +48,21 @@
 
 #define DEFAULT_PORT        25560
 #define DEFAULT_HTTP_PROXY_PORT 25561
-#define BUFFER_SIZE         65536
-#define CONNECT_TIMEOUT_MS  5000
+#define DEFAULT_SOCKS5_PROXY_PORT 1080
+#define BUFFER_SIZE         131072   /* 128 KB relay buffer */
+#define CONNECT_TIMEOUT_MS  8000     /* 8s connect timeout */
 #define RELAY_TIMEOUT_MS    300000   /* 5 min idle */
 #define MAX_PACKET_SIZE     32767
 #define HTTP_HEADER_MAX     16384
-#define SOCKET_BUFFER_BYTES (1 << 20)
+#define SOCKET_BUFFER_BYTES (1 << 20) /* 1 MB socket buffer */
 #define MAX_WIFI_NETWORKS   32
+#define LISTEN_BACKLOG      128      /* high-concurrency backlog */
+#define MAX_CHILDREN        256      /* max concurrent forked children */
+#define CONNECT_RETRIES     2        /* retry outbound connect this many times */
+#define CONNECT_RETRY_DELAY_MS 500   /* initial retry delay */
+#define DNS_CACHE_SIZE      64       /* max cached DNS entries */
+#define DNS_CACHE_TTL_SEC   30       /* DNS cache TTL */
+#define HEALTH_CHECK_INTERVAL_SEC 60 /* periodic gateway health check */
 
 /* ---------- globals ---------- */
 
@@ -62,12 +71,105 @@ static char   g_interface[64]           = {0};
 static int    g_ifindex                 = 0;
 static char   g_local_ip[INET_ADDRSTRLEN] = {0};
 static int    g_always_route_setup      = 0;
+static char   g_socks5_user[256]        = {0};
+static char   g_socks5_pass[256]        = {0};
+static volatile sig_atomic_t g_child_count = 0;
+static time_t g_last_health_check       = 0;
+
+/* ---------- DNS cache ---------- */
+
+typedef struct {
+    char            host[256];
+    struct addrinfo *ai;          /* cached addrinfo */
+    time_t          expire;       /* expiration time */
+    int             refcount;     /* for safety */
+} dns_cache_entry_t;
+
+static dns_cache_entry_t g_dns_cache[DNS_CACHE_SIZE];
+static int g_dns_cache_count = 0;
+
+static void dns_cache_init(void) {
+    memset(g_dns_cache, 0, sizeof(g_dns_cache));
+    g_dns_cache_count = 0;
+}
+
+static void dns_cache_cleanup(void) {
+    for (int i = 0; i < g_dns_cache_count; i++) {
+        if (g_dns_cache[i].ai) {
+            freeaddrinfo(g_dns_cache[i].ai);
+            g_dns_cache[i].ai = NULL;
+        }
+    }
+    g_dns_cache_count = 0;
+}
+
+static int dns_cache_lookup(const char *host, const char *port_str,
+                            struct addrinfo **out)
+{
+    time_t now = time(NULL);
+
+    /* find existing entry */
+    for (int i = 0; i < g_dns_cache_count; i++) {
+        if (strcmp(g_dns_cache[i].host, host) == 0) {
+            if (now < g_dns_cache[i].expire) {
+                *out = g_dns_cache[i].ai;
+                return 0;
+            }
+            /* expired - free and remove */
+            freeaddrinfo(g_dns_cache[i].ai);
+            g_dns_cache[i] = g_dns_cache[--g_dns_cache_count];
+            break;
+        }
+    }
+
+    /* resolve */
+    struct addrinfo hints = {0};
+    hints.ai_family   = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    struct addrinfo *result = NULL;
+    int err = getaddrinfo(host, port_str, &hints, &result);
+    if (err != 0) return err;
+
+    /* cache it */
+    int slot;
+    if (g_dns_cache_count < DNS_CACHE_SIZE) {
+        slot = g_dns_cache_count++;
+    } else {
+        /* evict oldest */
+        slot = 0;
+        time_t oldest = g_dns_cache[0].expire;
+        for (int i = 1; i < g_dns_cache_count; i++) {
+            if (g_dns_cache[i].expire < oldest) {
+                oldest = g_dns_cache[i].expire;
+                slot = i;
+            }
+        }
+        freeaddrinfo(g_dns_cache[slot].ai);
+    }
+
+    strncpy(g_dns_cache[slot].host, host, sizeof(g_dns_cache[slot].host) - 1);
+    g_dns_cache[slot].host[sizeof(g_dns_cache[slot].host) - 1] = '\0';
+    g_dns_cache[slot].ai = result;
+    g_dns_cache[slot].expire = now + DNS_CACHE_TTL_SEC;
+
+    *out = result;
+    return 0;
+}
 
 /* ---------- helpers ---------- */
 
 static void sig_handler(int sig) {
     (void)sig;
     g_running = 0;
+}
+
+static void sigchld_handler(int sig) {
+    (void)sig;
+    int status;
+    while (waitpid(-1, &status, WNOHANG) > 0) {
+        if (g_child_count > 0) g_child_count--;
+    }
 }
 
 static void log_time(void) {
@@ -88,27 +190,37 @@ static void log_time(void) {
     fflush(stderr); \
 } while (0)
 
-/* read exactly n bytes */
+/* read exactly n bytes with retry on EINTR */
 static ssize_t read_full(int fd, void *buf, size_t n) {
     size_t total = 0;
     while (total < n) {
         ssize_t r = read(fd, (char *)buf + total, n - total);
-        if (r <= 0) return r == 0 ? (ssize_t)total : -1;
-        total += r;
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (r == 0) return (ssize_t)total;  /* EOF */
+        total += (size_t)r;
     }
     return (ssize_t)total;
 }
 
-/* write exactly n bytes */
+/* write exactly n bytes with retry on EINTR */
 static ssize_t write_full(int fd, const void *buf, size_t n) {
     size_t total = 0;
     while (total < n) {
         ssize_t w = write(fd, (const char *)buf + total, n - total);
         if (w < 0) {
             if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                /* For blocking sockets this shouldn't happen, but handle it */
+                struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+                poll(&pfd, 1, 5000);
+                continue;
+            }
             return -1;
         }
-        total += w;
+        total += (size_t)w;
     }
     return (ssize_t)total;
 }
@@ -124,6 +236,22 @@ static void tune_socket(int fd) {
 #endif
     setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof(buf));
     setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buf, sizeof(buf));
+
+#ifdef TCP_KEEPALIVE
+    /* macOS TCP_KEEPALIVE: idle time in seconds before first probe */
+    int keepidle = 60;
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &keepidle, sizeof(keepidle));
+#endif
+#ifdef TCP_KEEPINTVL
+    /* interval between probes */
+    int keepintvl = 10;
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
+#endif
+#ifdef TCP_KEEPCNT
+    /* number of probes before dropping */
+    int keepcnt = 5;
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &keepcnt, sizeof(keepcnt));
+#endif
 }
 
 /* read VarInt from buffer */
@@ -225,8 +353,9 @@ static int connect_with_timeout(int fd, const struct sockaddr *addr,
 
     int ret = connect(fd, addr, addrlen);
     if (ret == 0) {
-        int f = fcntl(fd, F_GETFL, 0);
-        fcntl(fd, F_SETFL, f & ~O_NONBLOCK);
+        /* Restore blocking mode */
+        int flags = fcntl(fd, F_GETFL, 0);
+        fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
         return 0;
     }
     if (errno != EINPROGRESS) return -1;
@@ -243,8 +372,9 @@ static int connect_with_timeout(int fd, const struct sockaddr *addr,
     getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &errlen);
     if (err != 0) { errno = err; return -1; }
 
-    int f = fcntl(fd, F_GETFL, 0);
-    fcntl(fd, F_SETFL, f & ~O_NONBLOCK);
+    /* Restore blocking mode */
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
     return 0;
 }
 
@@ -986,11 +1116,6 @@ static int setup_scoped_route(void) {
             saw_hard_error = 1;
         }
     }
-    /*
-     * pclose() may return -1 / ECHILD because main() sets
-     * signal(SIGCHLD, SIG_IGN), which auto-reaps children.
-     * So we judge success by the command's output instead.
-     */
     pclose(fp);
 
     if (saw_hard_error) {
@@ -1096,14 +1221,11 @@ static int parse_handshake(const unsigned char *data, int data_len,
 static int connect_outbound(const char *host, unsigned short port,
                             char *rip, size_t rip_len)
 {
-    struct addrinfo hints = {0}, *result, *ai;
-    hints.ai_family   = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-
     char port_str[16];
     snprintf(port_str, sizeof(port_str), "%u", port);
 
-    int err = getaddrinfo(host, port_str, &hints, &result);
+    struct addrinfo *result = NULL;
+    int err = dns_cache_lookup(host, port_str, &result);
     if (err != 0) {
         ERR("DNS failed for %s: %s", host, gai_strerror(err));
         return -1;
@@ -1111,9 +1233,11 @@ static int connect_outbound(const char *host, unsigned short port,
 
     int last_errno = 0;
     int retried_with_route = 0;
+    int attempt = 0;
 
 retry_connect:
-    for (ai = result; ai; ai = ai->ai_next) {
+    attempt++;
+    for (struct addrinfo *ai = result; ai; ai = ai->ai_next) {
         int remote_fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (remote_fd < 0) {
             last_errno = errno;
@@ -1133,11 +1257,11 @@ retry_connect:
         inet_ntop(AF_INET,
                   &((struct sockaddr_in *)ai->ai_addr)->sin_addr,
                   rip, (socklen_t)rip_len);
-        LOG("Connecting to %s (%s:%u) via %s ...", host, rip, port, g_interface);
+        LOG("Connecting to %s (%s:%u) via %s (attempt %d)...",
+            host, rip, port, g_interface, attempt);
 
         if (connect_with_timeout(remote_fd, ai->ai_addr,
                                  ai->ai_addrlen, CONNECT_TIMEOUT_MS) == 0) {
-            freeaddrinfo(result);
             return remote_fd;
         }
 
@@ -1145,6 +1269,7 @@ retry_connect:
         close(remote_fd);
     }
 
+    /* Retry with scoped route fallback on network-level errors */
     if (!retried_with_route &&
         !g_always_route_setup &&
         should_retry_with_route(last_errno)) {
@@ -1156,44 +1281,128 @@ retry_connect:
         }
     }
 
-    freeaddrinfo(result);
+    /* Retry with exponential backoff for transient errors */
+    if (attempt < CONNECT_RETRIES &&
+        (last_errno == ETIMEDOUT || last_errno == ECONNREFUSED ||
+         last_errno == ECONNRESET)) {
+        int delay = CONNECT_RETRY_DELAY_MS * (1 << (attempt - 1));
+        LOG("Transient error (%s), retrying in %dms (attempt %d/%d)",
+            strerror(last_errno), delay, attempt + 1, CONNECT_RETRIES);
+        struct pollfd dummy = { .fd = -1, .events = 0 };
+        poll(&dummy, 0, delay);
+        goto retry_connect;
+    }
+
     if (last_errno) errno = last_errno;
     ERR("Connect to %s:%u failed: %s", host, port, strerror(errno));
     return -1;
 }
 
 
+/**
+ * Bidirectional relay — simple, robust, zero-CPU-when-idle.
+ *
+ * Uses blocking I/O with poll() for readability detection.
+ * This design CANNOT spin because:
+ *   - poll() always blocks (with timeout)
+ *   - write_full() blocks until data is written (or fails)
+ *   - No pending write buffers, no non-blocking complexity
+ *
+ * Properly handles:
+ *   - POLLHUP: drains remaining data instead of breaking
+ *   - Half-close: shutdown(SHUT_WR) propagates EOF cleanly
+ *   - Backpressure: blocking writes naturally throttle the reader
+ */
 static void relay_bidirectional(int client_fd, int remote_fd,
                                 const char *tag,
                                 const char *host, unsigned short port)
 {
-    struct pollfd fds[2];
-    fds[0].fd = client_fd;   fds[0].events = POLLIN;
-    fds[1].fd = remote_fd;   fds[1].events = POLLIN;
-
     unsigned char buf[BUFFER_SIZE];
     unsigned long c2s = 0, s2c = 0;
+    int client_eof = 0, remote_eof = 0;
+    int client_shut_wr = 0, remote_shut_wr = 0;
 
     while (g_running) {
-        int ready = poll(fds, 2, RELAY_TIMEOUT_MS);
-        if (ready < 0) { if (errno == EINTR) continue; break; }
-        if (ready == 0) { LOG("%s idle timeout for %s:%u", tag, host, port); break; }
+        struct pollfd fds[2];
+        int nfds = 0;
 
-        if (fds[0].revents & POLLIN) {
-            ssize_t n = read(client_fd, buf, sizeof(buf));
-            if (n <= 0) break;
-            if (write_full(remote_fd, buf, n) != n) break;
-            c2s += (unsigned long)n;
+        /* Only poll for read on sides that haven't hit EOF yet */
+        if (!client_eof) {
+            fds[nfds].fd = client_fd;
+            fds[nfds].events = POLLIN;
+            fds[nfds].revents = 0;
+            nfds++;
         }
-        if (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) break;
+        if (!remote_eof) {
+            fds[nfds].fd = remote_fd;
+            fds[nfds].events = POLLIN;
+            fds[nfds].revents = 0;
+            nfds++;
+        }
 
-        if (fds[1].revents & POLLIN) {
-            ssize_t n = read(remote_fd, buf, sizeof(buf));
-            if (n <= 0) break;
-            if (write_full(client_fd, buf, n) != n) break;
-            s2c += (unsigned long)n;
+        /* Both sides at EOF — nothing more to do */
+        if (nfds == 0) break;
+
+        int ready = poll(fds, (nfds_t)nfds, RELAY_TIMEOUT_MS);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            break;
         }
-        if (fds[1].revents & (POLLERR | POLLHUP | POLLNVAL)) break;
+        if (ready == 0) {
+            LOG("%s idle timeout for %s:%u", tag, host, port);
+            break;
+        }
+
+        for (int i = 0; i < nfds; i++) {
+            int is_client = (fds[i].fd == client_fd);
+
+            /* Read data (POLLIN) or drain final bytes (POLLHUP) */
+            if (fds[i].revents & (POLLIN | POLLHUP)) {
+                ssize_t n = read(fds[i].fd, buf, sizeof(buf));
+                if (n < 0) {
+                    if (errno == EINTR) continue;
+                    /* Read error — treat as EOF */
+                    if (is_client) client_eof = 1;
+                    else           remote_eof = 1;
+                } else if (n == 0) {
+                    /* Clean EOF */
+                    if (is_client) client_eof = 1;
+                    else           remote_eof = 1;
+                } else {
+                    /* Forward data to the other side (blocking write) */
+                    int out_fd = is_client ? remote_fd : client_fd;
+                    if (write_full(out_fd, buf, (size_t)n) != (ssize_t)n) {
+                        /* Write failed — connection broken, stop relay */
+                        LOG("%s relay closed %s:%u  (C->S %lu  S->C %lu bytes) — write error",
+                            tag, host, port, c2s, s2c);
+                        close(remote_fd);
+                        close(client_fd);
+                        return;
+                    }
+                    if (is_client) c2s += (unsigned long)n;
+                    else           s2c += (unsigned long)n;
+                }
+            }
+
+            /* Unrecoverable socket error */
+            if (fds[i].revents & (POLLERR | POLLNVAL)) {
+                if (is_client) client_eof = 1;
+                else           remote_eof = 1;
+            }
+        }
+
+        /* Half-close: propagate EOF to the other side's write direction */
+        if (client_eof && !remote_shut_wr) {
+            shutdown(remote_fd, SHUT_WR);
+            remote_shut_wr = 1;
+        }
+        if (remote_eof && !client_shut_wr) {
+            shutdown(client_fd, SHUT_WR);
+            client_shut_wr = 1;
+        }
+
+        /* Both sides done */
+        if (client_eof && remote_eof) break;
     }
 
     LOG("%s relay closed %s:%u  (C->S %lu  S->C %lu bytes)",
@@ -1579,6 +1788,200 @@ static void handle_http_client(int client_fd) {
     relay_bidirectional(client_fd, remote_fd, "HTTP", host, port);
 }
 
+/* ---------- SOCKS5 proxy handler ---------- */
+
+static void send_socks5_reply(int fd, unsigned char rep,
+                              const char *bnd_addr, unsigned short bnd_port)
+{
+    unsigned char reply[512];
+    int off = 0;
+
+    reply[off++] = 0x05;  /* VER */
+    reply[off++] = rep;   /* REP */
+    reply[off++] = 0x00;  /* RSV */
+    reply[off++] = 0x01;  /* ATYP: IPv4 */
+
+    struct in_addr bnd_in;
+    if (inet_pton(AF_INET, bnd_addr, &bnd_in) != 1) {
+        /* fallback to 0.0.0.0 */
+        bnd_in.s_addr = htonl(INADDR_ANY);
+    }
+    memcpy(reply + off, &bnd_in.s_addr, 4);
+    off += 4;
+
+    reply[off++] = (unsigned char)((bnd_port >> 8) & 0xFF);
+    reply[off++] = (unsigned char)(bnd_port & 0xFF);
+
+    write_full(fd, reply, (size_t)off);
+}
+
+static void handle_socks5_client(int client_fd) {
+    tune_socket(client_fd);
+
+    unsigned char buf[512];
+
+    /* --- SOCKS5 greeting --- */
+    /* expect: VER(1) | NMETHODS(1) | METHODS(NMETHODS) */
+    if (read_full(client_fd, buf, 2) != 2) {
+        close(client_fd);
+        return;
+    }
+    if (buf[0] != 0x05) {
+        ERR("SOCKS5: unsupported version %d", buf[0]);
+        close(client_fd);
+        return;
+    }
+
+    int nmethods = (int)buf[1];
+    if (nmethods <= 0 || nmethods > 255) {
+        close(client_fd);
+        return;
+    }
+    if (read_full(client_fd, buf, (size_t)nmethods) != (ssize_t)nmethods) {
+        close(client_fd);
+        return;
+    }
+
+    int want_userpass = (g_socks5_user[0] != '\0');
+    int found_noauth = 0, found_userpass = 0;
+    for (int i = 0; i < nmethods; i++) {
+        if (buf[i] == 0x00) found_noauth = 1;
+        if (buf[i] == 0x02) found_userpass = 1;
+    }
+
+    /* Choose auth method */
+    if (want_userpass && found_userpass) {
+        unsigned char resp[] = { 0x05, 0x02 };
+        write_full(client_fd, resp, 2);
+
+        /* --- username/password sub-negotiation --- */
+        /* VER | ULEN | UNAME | PLEN | PASSWD */
+        if (read_full(client_fd, buf, 2) != 2) {
+            close(client_fd);
+            return;
+        }
+        if (buf[0] != 0x01) {  /* sub-negotiation version */
+            close(client_fd);
+            return;
+        }
+        int ulen = (int)buf[1];
+        if (ulen < 0 || ulen > 255) { close(client_fd); return; }
+        char user[256] = {0};
+        if (read_full(client_fd, user, (size_t)ulen) != (ssize_t)ulen) {
+            close(client_fd);
+            return;
+        }
+        if (read_full(client_fd, buf, 1) != 1) {
+            close(client_fd);
+            return;
+        }
+        int plen = (int)buf[0];
+        if (plen < 0 || plen > 255) { close(client_fd); return; }
+        char pass[256] = {0};
+        if (read_full(client_fd, pass, (size_t)plen) != (ssize_t)plen) {
+            close(client_fd);
+            return;
+        }
+
+        if (strcmp(user, g_socks5_user) != 0 || strcmp(pass, g_socks5_pass) != 0) {
+            unsigned char fail[] = { 0x01, 0xFF };
+            write_full(client_fd, fail, 2);
+            close(client_fd);
+            return;
+        }
+        /* Success */
+        unsigned char ok[] = { 0x01, 0x00 };
+        write_full(client_fd, ok, 2);
+    } else if (!want_userpass && found_noauth) {
+        unsigned char resp[] = { 0x05, 0x00 };
+        write_full(client_fd, resp, 2);
+    } else {
+        /* No acceptable method */
+        unsigned char resp[] = { 0x05, 0xFF };
+        write_full(client_fd, resp, 2);
+        close(client_fd);
+        return;
+    }
+
+    /* --- SOCKS5 request --- */
+    /* VER | CMD | RSV | ATYP | DST.ADDR | DST.PORT */
+    if (read_full(client_fd, buf, 4) != 4) {
+        close(client_fd);
+        return;
+    }
+    if (buf[0] != 0x05) {
+        close(client_fd);
+        return;
+    }
+    unsigned char cmd = buf[1];
+    if (cmd != 0x01) {  /* Only CONNECT is supported */
+        send_socks5_reply(client_fd, 0x07, "0.0.0.0", 0);
+        close(client_fd);
+        return;
+    }
+
+    unsigned char atyp = buf[3];
+    char host[256] = {0};
+
+    if (atyp == 0x01) {
+        /* IPv4: 4 bytes */
+        if (read_full(client_fd, buf, 4) != 4) {
+            close(client_fd);
+            return;
+        }
+        struct in_addr addr;
+        memcpy(&addr.s_addr, buf, 4);
+        inet_ntop(AF_INET, &addr, host, sizeof(host));
+    } else if (atyp == 0x03) {
+        /* Domain: 1 byte len + domain */
+        if (read_full(client_fd, buf, 1) != 1) {
+            close(client_fd);
+            return;
+        }
+        int dlen = (int)buf[0];
+        if (dlen <= 0 || dlen >= (int)sizeof(host)) {
+            send_socks5_reply(client_fd, 0x01, "0.0.0.0", 0);
+            close(client_fd);
+            return;
+        }
+        if (read_full(client_fd, host, (size_t)dlen) != (ssize_t)dlen) {
+            close(client_fd);
+            return;
+        }
+        host[dlen] = '\0';
+    } else if (atyp == 0x04) {
+        /* IPv6: not supported */
+        send_socks5_reply(client_fd, 0x08, "0.0.0.0", 0);
+        close(client_fd);
+        return;
+    } else {
+        send_socks5_reply(client_fd, 0x08, "0.0.0.0", 0);
+        close(client_fd);
+        return;
+    }
+
+    /* Read port (2 bytes big-endian) */
+    if (read_full(client_fd, buf, 2) != 2) {
+        close(client_fd);
+        return;
+    }
+    unsigned short port = (unsigned short)((buf[0] << 8) | buf[1]);
+
+    LOG("SOCKS5 CONNECT %s:%u", host, port);
+
+    char rip[INET_ADDRSTRLEN] = {0};
+    int remote_fd = connect_outbound(host, port, rip, sizeof(rip));
+    if (remote_fd < 0) {
+        send_socks5_reply(client_fd, 0x04, "0.0.0.0", 0);
+        close(client_fd);
+        return;
+    }
+
+    send_socks5_reply(client_fd, 0x00, rip, port);
+
+    relay_bidirectional(client_fd, remote_fd, "SOCKS5", host, port);
+}
+
 static int start_listener(int port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) { ERR("socket: %s", strerror(errno)); return -1; }
@@ -1597,7 +2000,7 @@ static int start_listener(int port) {
         close(fd);
         return -1;
     }
-    if (listen(fd, 16) < 0) {
+    if (listen(fd, LISTEN_BACKLOG) < 0) {
         ERR("listen: %s", strerror(errno));
         close(fd);
         return -1;
@@ -1614,16 +2017,21 @@ static void print_usage(const char *prog) {
         "  --port PORT         Listen port (default %d)\n"
         "  --http-proxy PORT   HTTP proxy port (default %d)\n"
         "  --no-http-proxy     Disable HTTP proxy listener\n"
+        "  --socks5-proxy PORT SOCKS5 proxy port (default %d)\n"
+        "  --no-socks5-proxy   Disable SOCKS5 proxy listener\n"
+        "  --socks5-user USER  SOCKS5 username (optional)\n"
+        "  --socks5-pass PASS  SOCKS5 password (optional)\n"
         "  --interface IFACE   Network interface (default auto-detect)\n"
         "  --always-route      Always install scoped default route at startup\n"
         "  --skip-test         Skip initial connectivity test\n"
         "  --help              Show this help\n",
-    prog, DEFAULT_PORT, DEFAULT_HTTP_PROXY_PORT);
+    prog, DEFAULT_PORT, DEFAULT_HTTP_PROXY_PORT, DEFAULT_SOCKS5_PROXY_PORT);
 }
 
 int main(int argc, char *argv[]) {
     int listen_port        = DEFAULT_PORT;
     int http_proxy_port    = DEFAULT_HTTP_PROXY_PORT;
+    int socks5_proxy_port  = DEFAULT_SOCKS5_PROXY_PORT;
     const char *man_iface  = NULL;
     int skip_test          = 0;
 
@@ -1634,6 +2042,18 @@ int main(int argc, char *argv[]) {
             http_proxy_port = atoi(argv[++i]);
         else if (strcmp(argv[i], "--no-http-proxy") == 0)
             http_proxy_port = 0;
+        else if (strcmp(argv[i], "--socks5-proxy") == 0 && i + 1 < argc)
+            socks5_proxy_port = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--no-socks5-proxy") == 0)
+            socks5_proxy_port = 0;
+        else if (strcmp(argv[i], "--socks5-user") == 0 && i + 1 < argc) {
+            strncpy(g_socks5_user, argv[++i], sizeof(g_socks5_user) - 1);
+            g_socks5_user[sizeof(g_socks5_user) - 1] = '\0';
+        }
+        else if (strcmp(argv[i], "--socks5-pass") == 0 && i + 1 < argc) {
+            strncpy(g_socks5_pass, argv[++i], sizeof(g_socks5_pass) - 1);
+            g_socks5_pass[sizeof(g_socks5_pass) - 1] = '\0';
+        }
         else if (strcmp(argv[i], "--interface") == 0 && i + 1 < argc)
             man_iface = argv[++i];
         else if (strcmp(argv[i], "--always-route") == 0)
@@ -1652,8 +2072,18 @@ int main(int argc, char *argv[]) {
     sa.sa_handler = sig_handler;
     sigaction(SIGTERM, &sa, NULL);
     sigaction(SIGINT,  &sa, NULL);
-    signal(SIGCHLD, SIG_IGN);
+
+    /* Install proper SIGCHLD handler to reap children and track count */
+    struct sigaction sa_chld;
+    memset(&sa_chld, 0, sizeof(sa_chld));
+    sa_chld.sa_handler = sigchld_handler;
+    sa_chld.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+    sigaction(SIGCHLD, &sa_chld, NULL);
+
     signal(SIGPIPE, SIG_IGN);
+
+    /* Initialize DNS cache */
+    dns_cache_init();
 
     LOG("RouterTunnel starting...");
 
@@ -1704,18 +2134,35 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    int socks5_fd = -1;
+    if (socks5_proxy_port > 0) {
+        socks5_fd = start_listener(socks5_proxy_port);
+        if (socks5_fd < 0) {
+            close(listen_fd);
+            if (http_fd >= 0) close(http_fd);
+            return 1;
+        }
+    }
+
     LOG("==============================================");
     LOG("  RouterTunnel is READY");
     LOG("  Listening on 127.0.0.1:%d", listen_port);
     if (http_fd >= 0)
         LOG("  HTTP proxy on 127.0.0.1:%d", http_proxy_port);
+    if (socks5_fd >= 0) {
+        LOG("  SOCKS5 proxy on 127.0.0.1:%d", socks5_proxy_port);
+        if (g_socks5_user[0])
+            LOG("  SOCKS5 auth: user='%s'", g_socks5_user);
+    }
     LOG("  Interface: %s (%s)", g_interface, g_local_ip);
     LOG("  Route setup: %s", g_always_route_setup ? "always-on" : "on-demand fallback");
     LOG("  Traffic will bypass VPN via IP_BOUND_IF");
     LOG("==============================================");
 
+    g_last_health_check = time(NULL);
+
     while (g_running) {
-        struct pollfd fds[2];
+        struct pollfd fds[3];
         int nfds = 0;
         fds[nfds].fd = listen_fd;
         fds[nfds].events = POLLIN;
@@ -1725,18 +2172,51 @@ int main(int argc, char *argv[]) {
             fds[nfds].events = POLLIN;
             nfds++;
         }
+        if (socks5_fd >= 0) {
+            fds[nfds].fd = socks5_fd;
+            fds[nfds].events = POLLIN;
+            nfds++;
+        }
 
         int ret = poll(fds, nfds, 1000);
         if (ret < 0) { if (errno == EINTR) continue; ERR("poll: %s", strerror(errno)); break; }
-        if (ret == 0) continue;
+        if (ret == 0) {
+            /* Periodic health check: revalidate gateway/route */
+            time_t now = time(NULL);
+            if (now - g_last_health_check >= HEALTH_CHECK_INTERVAL_SEC) {
+                g_last_health_check = now;
+                char old_gw[64];
+                strncpy(old_gw, g_gateway, sizeof(old_gw));
+                refresh_local_ip();
+                detect_gateway();
+                if (g_always_route_setup && g_gateway[0]) {
+                    setup_scoped_route();
+                }
+                if (strcmp(old_gw, g_gateway) != 0 && g_gateway[0]) {
+                    LOG("Gateway changed: %s -> %s", old_gw, g_gateway);
+                }
+            }
+            continue;
+        }
         for (int i = 0; i < nfds; i++) {
             if (!(fds[i].revents & POLLIN)) continue;
             int cfd = accept(fds[i].fd, NULL, NULL);
-            if (cfd < 0) { if (errno == EINTR) continue; ERR("accept: %s", strerror(errno)); continue; }
+            if (cfd < 0) {
+                if (errno == EINTR) continue;
+                if (errno == EMFILE || errno == ENFILE) {
+                    ERR("accept: too many open files (%s) — throttling", strerror(errno));
+                    struct pollfd dummy = { .fd = -1, .events = 0 };
+                    poll(&dummy, 0, 100);
+                    continue;
+                }
+                ERR("accept: %s", strerror(errno));
+                continue;
+            }
 
             int is_http = (http_fd >= 0 && fds[i].fd == http_fd);
+            int is_socks5 = (socks5_fd >= 0 && fds[i].fd == socks5_fd);
 
-            if (!is_http) {
+            if (!is_http && !is_socks5) {
                 unsigned char first = 0;
                 ssize_t n = recv(cfd, &first, 1, MSG_PEEK | MSG_DONTWAIT);
                 if (n == 1 && (first == 0x00 || first == 0x01)) {
@@ -1745,24 +2225,57 @@ int main(int argc, char *argv[]) {
                 }
             }
 
+            /* Throttle fork if too many children are active */
+            if (g_child_count >= MAX_CHILDREN) {
+                ERR("Too many active connections (%d), rejecting new connection", g_child_count);
+                close(cfd);
+                continue;
+            }
+
             pid_t pid = fork();
             if (pid < 0) {
                 ERR("fork: %s", strerror(errno));
                 close(cfd);
             } else if (pid == 0) {
+                /* Child process: clean up inherited fds and DNS cache */
                 close(listen_fd);
                 if (http_fd >= 0) close(http_fd);
-                if (is_http) handle_http_client(cfd);
+                if (socks5_fd >= 0) close(socks5_fd);
+                /* Child gets its own DNS cache (forked copy is fine) */
+                if (is_socks5) handle_socks5_client(cfd);
+                else if (is_http) handle_http_client(cfd);
                 else handle_client(cfd);
                 _exit(0);
             } else {
+                g_child_count++;
                 close(cfd);
             }
         }
     }
 
-    LOG("Shutting down.");
+    LOG("Shutting down...");
+
+    /* Graceful shutdown: wait briefly for children to finish */
+    int shutdown_wait = 5;  /* max seconds to wait */
+    time_t deadline = time(NULL) + shutdown_wait;
+    while (g_child_count > 0 && time(NULL) < deadline) {
+        int status;
+        if (waitpid(-1, &status, WNOHANG) > 0) {
+            if (g_child_count > 0) g_child_count--;
+        } else {
+            struct pollfd dummy = { .fd = -1, .events = 0 };
+            poll(&dummy, 0, 100);
+        }
+    }
+
+    if (g_child_count > 0) {
+        LOG("Forcing shutdown with %d active connections", g_child_count);
+    }
+
+    dns_cache_cleanup();
     close(listen_fd);
     if (http_fd >= 0) close(http_fd);
+    if (socks5_fd >= 0) close(socks5_fd);
+    LOG("Shutdown complete.");
     return 0;
 }

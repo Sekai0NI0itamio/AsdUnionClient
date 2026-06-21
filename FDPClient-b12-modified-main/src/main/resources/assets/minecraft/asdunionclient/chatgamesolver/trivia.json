@@ -1,0 +1,210 @@
+[
+  {
+    "question": "What is the first name of the original creator of Minecraft?",
+    "answers": ["notch"]
+  },
+  {
+    "question": "What was the second mob ever added to the game?",
+    "answers": ["skeleton", "skeletons"]
+  },
+  {
+    "question": "How many iron ingots do you need to craft an anvil?",
+    "answers": ["31", "31 iron", "31 ingots", "31 iron ingots"]
+  },
+  {
+    "question": "How many iron ingots do you need to craft an Iron Golem?",
+    "answers": ["36", "36 iron", "36 ingots", "36 iron ingots"]
+  },
+  {
+    "question": "What mob are creepers scared of?",
+    "answers": ["ocelot", "ocelots", "cat", "cats"]
+  },
+  {
+    "question": "When do creepers drop music discs?",
+    "answers": ["when a skeleton kills them", "when a skeleton shoots them", "when they are shot by a skeleton", "when they are killed by a skeleton", "when they are killed by skeletons", "when killed by a skeleton", "when shot by a skeleton"]
+  },
+  {
+    "question": "What update improved oceans and added new sea life?",
+    "answers": ["1.13", "update 1.13", "the aquatic update", "aquatic", "aquatic update"]
+  },
+  {
+    "question": "Diamonds spawn at Y level 16 and below",
+    "answers": ["16", "sixteen"]
+  },
+  {
+    "question": "What's the only mob that spawns naturally in all dimensions?",
+    "answers": ["endermen", "enderman"]
+  },
+  {
+    "question": "What programming language is Minecraft written in?",
+    "answers": ["java"]
+  },
+  {
+    "question": "What year was Minecraft released in?",
+    "answers": ["2009"]
+  },
+  {
+    "question": "Roughly how many minutes does it take for any baby mobs to grow up?",
+    "answers": ["20", "20 mins", "20 minutes", "twenty", "twenty mins", "twenty minutes"]
+  },
+  {
+    "question": "What drops from beehives when you shear them?",
+    "answers": ["honeycomb", "honeycombs", "honey comb", "honey combs"]
+  },
+  {
+    "question": "What's the name of the update that added bees to the game?",
+    "answers": ["buzzy bees"]
+  },
+  {
+    "question": "Which update was The Combat Update?",
+    "answers": ["1.9", "update 1.9"]
+  },
+  {
+    "question": "True or False: Chests automatically change their texture to represent a present on Christmas",
+    "answers": ["true"]
+  },
+  {
+    "question": "A full day-night cycle lasts for how many minutes",
+    "answers": ["20", "twenty"]
+  },
+  {
+    "question": "What biome do foxes spawn in?",
+    "answers": ["taiga", "taiga biome", "the taiga", "the taiga biome"]
+  },
+  {
+    "question": "What is the only mob that can sometimes break obsidian?",
+    "answers": ["wither", "withers", "the wither"]
+  },
+  {
+    "question": "Excluding crafting, how many slots are in your survival inventory?",
+    "answers": ["41", "41 slots"]
+  },
+  {
+    "question": "Excluding bosses, which mob has the most health?",
+    "answers": ["iron golem", "iron golems", "golem", "golems"]
+  },
+  {
+    "question": "True or False: You can sleep in any dimension",
+    "answers": ["false"]
+  },
+  {
+    "question": "What happens when you try to sleep in the nether or end dimension?",
+    "answers": ["the bed explodes", "it explodes", "it blows up", "the bed blows up", "your bed explodes", "your bed blows up", "you get blown up"]
+  },
+  {
+    "question": "True or False: The wither has more health than the ender dragon",
+    "answers": ["true"]
+  },
+  {
+    "question": "How many full hearts does the wither have?",
+    "answers": ["150"]
+  },
+  {
+    "question": "What are the two names you can give to a mob to turn it upside down?",
+    "answers": ["dinnerbone, grumm", "grumm, dinnerbone", "dinnerbone grumm", "grumm dinnerbone", "dinnerbone and grumm", "grumm and dinnerbone"]
+  },
+  {
+    "question": "What is the longest lasting fuel source you can use for smelting and cooking?",
+    "answers": ["lava bucket", "lava buckets", "bucket of lava", "buckets of lava"]
+  },
+  {
+    "question": "How many tree types are there that grow naturally in the overworld?",
+    "answers": ["6", "six", "six types", "6 types"]
+  },
+  {
+    "question": "How many seconds does a lava bucket burn for when used as fuel?",
+    "answers": ["1000", "1000 seconds", "a thousand"]
+  },
+  {
+    "question": "What mob is hidden in the MINECRAFT logo?",
+    "answers": ["creeper", "a creeper"]
+  },
+  {
+    "question": "What are the dimensions of a chunk?",
+    "answers": ["16x16x320", "16 x 16 x 320"]
+  },
+  {
+    "question": "True or False: Minecraft's moon has the same amount of lunar phases as the moon in real life",
+    "answers": ["true"]
+  },
+  {
+    "question": "True or False: Spiders attack in daylight",
+    "answers": ["false"]
+  },
+  {
+    "question": "True or False: Under the pumpkin, snowmen are happy",
+    "answers": ["true"]
+  },
+  {
+    "question": "How many kinds of sandstone patterns are there?",
+    "answers": ["3", "three"]
+  },
+  {
+    "question": "Where did Minecraft originate from?",
+    "answers": ["sweden"]
+  },
+  {
+    "question": "Which two bow enchantments cannot be on the same bow?",
+    "answers": ["infinity and mending", "mending and infinity", "mending infinity", "infinity mending", "mending, infinity", "infinity, mending"]
+  },
+  {
+    "question": "True or False: Minecraft worlds are infinite and will keep generating forever",
+    "answers": ["false"]
+  },
+  {
+    "question": "Roughly how long does it take to mine obsidian with an unenchanted diamond pickaxe?",
+    "answers": ["10 seconds", "ten seconds", "ten sec", "ten secs", "10 sec", "10 secs"]
+  },
+  {
+    "question": "How many gold iron diamonds do you need to craft a full set of armor?",
+    "answers": ["24"]
+  },
+  {
+    "question": "What Minecraft version was the ender dragon added?",
+    "answers": ["1.0", "version 1.0", "1.0.0", "version 1.0.0"]
+  },
+  {
+    "question": "What are the two places slimes spawn?",
+    "answers": ["swamps and slime chunks", "slime chunks and swamps", "swamp biome and slime chunks", "swamp biomes and slime chunks", "slime chunks and swamp biomes"]
+  },
+  {
+    "question": "How many different axolotl color variants are there?",
+    "answers": ["5", "5 variants", "five", "five variants"]
+  },
+  {
+    "question": "What is the rarest axolotl color variant?",
+    "answers": ["blue"]
+  },
+  {
+    "question": "True or False: All axolotl color variants spawn in the world naturally",
+    "answers": ["false"]
+  },
+  {
+    "question": "What new ore type was added in 1.17?",
+    "answers": ["copper", "copper ore"]
+  },
+  {
+    "question": "Minecraft 1.20 introduced a new wood type made from which plant?",
+    "answers": ["bamboo", "bamboo plant"]
+  },
+  {
+    "question": "True or False: Only one player can ride a camel at once",
+    "answers": ["false"]
+  },
+  {
+    "question": "What the name of the 1.20 update?",
+    "answers": ["trails & tales", "trails and tales"]
+  },
+  {
+    "question": "What is the number of book slots in the chiseled bookshelf block?",
+    "answers": ["6", "six", "6 slots", "six slots"]
+  },
+  {
+    "question": "Which block spreads when a mob dies near it?",
+    "answers": ["sculk catalyst"]
+  },
+  {
+    "question": "Which mob was added in 1.20.5?",
+    "answers": ["armadillo", "armadillos"]
+  }
+]

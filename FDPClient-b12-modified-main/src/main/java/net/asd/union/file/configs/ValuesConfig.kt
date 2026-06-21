@@ -90,12 +90,6 @@ class ValuesConfig(file: File) : FileConfig(file) {
                         jsonValue["EnabledClientTitle"].asBoolean
                     if (jsonValue.has("AltNameMode")) {
                         altNameMode = AltNameMode.fromString(jsonValue["AltNameMode"].asString)
-                    } else if (jsonValue.has("StylisedAlts")) {
-                        altNameMode = if (jsonValue["StylisedAlts"].asBoolean) {
-                            AltNameMode.STYLIZED
-                        } else {
-                            AltNameMode.LEGACY
-                        }
                     }
                     if (jsonValue.has("AltsLength")) altsLength = jsonValue["AltsLength"].asInt
                     if (jsonValue.has("CleanAlts")) unformattedAlts = jsonValue["CleanAlts"].asBoolean

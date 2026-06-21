@@ -1,0 +1,472 @@
+{
+  "Ambience": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Animations": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AntiAFK": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AntiBlind": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AntiFireball": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AntiVoid": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AutoAccount": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AutoArmor": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AutoBow": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AutoClicker": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AutoConfig": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AutoRespawn": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AutoText": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "AutoTool": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Backtrack": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "BedPlates": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "BedProtectionESP": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "BlockESP": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "BlockOverlay": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "BrandSpoofer": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Chams": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "ChatControl": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "ClickGUI": {
+    "State": false,
+    "KeyBind": 54,
+    "Array": true
+  },
+  "CombatVisuals": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "ConfigExport": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "DefaultConfig": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "DelayRemover": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "ESP": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Eagle": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "FakeLag": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "FakePlayer": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "FastPlace": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "FastUse": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "FlagCheck": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "ForwardTrack": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "FreeCam": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "FreeLook": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "FriendAdder": {
+    "State": true,
+    "KeyBind": 33,
+    "Array": true
+  },
+  "Friends": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Fucker": {
+    "State": false,
+    "KeyBind": 34,
+    "Array": true
+  },
+  "Fullbright": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "GameDetector": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Gapple": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "HUD": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": false
+  },
+  "HudDesigner": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "InventoryCleaner": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "ItemESP": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "KeepAlive": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "KeepTabList": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "KillAura": {
+    "State": false,
+    "KeyBind": 19,
+    "Array": true
+  },
+  "KillAuraTargeter": {
+    "State": false,
+    "KeyBind": 19,
+    "Array": true
+  },
+  "MidClick": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NameProtect": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NameTags": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoBob": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoBooks": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoFOV": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoHurtCam": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoJumpDelay": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoParticles": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoRender": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoRotateSet": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoSlotSet": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoSlow": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "NoSwing": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Notifier": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Nuker": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "OverrideRaycast": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "PacketDebugger": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "PointerESP": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "PotionSpoof": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "ProjectileVelocity": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Projectiles": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "RemoveEffect": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "RodVelocity": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "RotationRecorder": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Rotations": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Scaffold": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Sneak": {
+    "State": false,
+    "KeyBind": 50,
+    "Array": true
+  },
+  "Sprint": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "StorageESP": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "SuperKnockback": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "TNTESP": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "TNTTimer": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "TNTTrails": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Target": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": false
+  },
+  "TargetDisplay": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Teams": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "TickBase": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Timer": {
+    "State": false,
+    "KeyBind": 23,
+    "Array": true
+  },
+  "TimerRange": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Tracers": {
+    "State": true,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "TrueSight": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  },
+  "Velocity": {
+    "State": false,
+    "KeyBind": 0,
+    "Array": true
+  }
+}

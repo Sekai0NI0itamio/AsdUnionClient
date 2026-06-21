@@ -5,9 +5,20 @@
  */
 package net.asd.union.handler.payload;
 
+import net.asd.union.handler.sessiontabs.SessionRuntimeScope;
+import net.asd.union.handler.sessiontabs.TabSimulationThread;
+
 public class ClientBrandRetriever {
 
     public static String getClientModName() {
+        if (Thread.currentThread() instanceof TabSimulationThread) {
+            return "vanilla";
+        }
+
+        if (SessionRuntimeScope.INSTANCE.isDetachedContextActive()) {
+            return "vanilla";
+        }
+
         return ClientFixes.getClientModName();
     }
 }

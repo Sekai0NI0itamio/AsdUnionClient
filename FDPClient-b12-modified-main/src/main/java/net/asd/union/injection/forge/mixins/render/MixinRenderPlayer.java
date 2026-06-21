@@ -5,7 +5,7 @@
  */
 package net.asd.union.injection.forge.mixins.render;
 
-import net.asd.union.features.module.modules.combat.KillAura;
+import net.asd.union.features.module.modules.combat.AuraBridge;
 import net.asd.union.features.module.modules.movement.NoSlow;
 import net.asd.union.utils.io.APIConnectorUtils;
 import net.asd.union.utils.inventory.SilentHotbar;
@@ -61,7 +61,7 @@ public abstract class MixinRenderPlayer {
                 modelplayer.heldItemRight = 0;
             } else {
                 modelplayer.heldItemRight = 1;
-                boolean isForceBlocking = entity instanceof EntityPlayerSP && ((itemstack.getItem() instanceof ItemSword && KillAura.INSTANCE.getRenderBlocking()) || NoSlow.INSTANCE.isUNCPBlocking());
+                boolean isForceBlocking = entity instanceof EntityPlayerSP && ((itemstack.getItem() instanceof ItemSword && AuraBridge.isRenderBlocking()) || NoSlow.INSTANCE.isUNCPBlocking());
                 if (entity.getItemInUseCount() > 0 || isForceBlocking) {
                     EnumAction enumaction = isForceBlocking? EnumAction.BLOCK : itemstack.getItemUseAction();
                     if (enumaction == EnumAction.BLOCK) {

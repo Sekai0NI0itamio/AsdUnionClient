@@ -141,6 +141,7 @@ object NameProtect : Module("NameProtect", Category.VISUAL, subjective = true, g
         var newText = text
 
         for (friend in friendsConfig.friends) {
+            if (friend.playerName.isBlank()) continue // blank playerName would corrupt every rendered string
             newText = newText.replace(friend.playerName, translateAlternateColorCodes(friend.alias) + "§f")
         }
 
@@ -150,7 +151,10 @@ object NameProtect : Module("NameProtect", Category.VISUAL, subjective = true, g
         }
 
         // Replace original name with fake name
-        newText = newText.replace(p.name, translateAlternateColorCodes(fakeName) + "§f")
+        val resolvedFakeName = translateAlternateColorCodes(fakeName)
+        if (p.name.isNotBlank() && resolvedFakeName.isNotBlank()) {
+            newText = newText.replace(p.name, resolvedFakeName + "§f")
+        }
 
         // Replace all other player names with "Protected User" or Random Characters
         for (playerInfo in mc.netHandler.playerInfoMap) {

@@ -154,6 +154,11 @@ object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
             return event
         }
 
+        // Events from background tab simulation threads should not be dispatched
+        if (Thread.currentThread() is net.asd.union.handler.sessiontabs.TabSimulationThread) {
+            return event
+        }
+
         val threadName = Thread.currentThread().name
         if (threadName.startsWith("Server Pinger") || 
             threadName.startsWith("Netty Client IO") || 
@@ -172,6 +177,11 @@ object EventManager : CoroutineScope by CoroutineScope(SupervisorJob()) {
         val hooks = registry[event.javaClass] ?: return event
 
         if (SessionRuntimeScope.isDetachedContextActive()) {
+            return event
+        }
+
+        // Events from background tab simulation threads should not be dispatched
+        if (Thread.currentThread() is net.asd.union.handler.sessiontabs.TabSimulationThread) {
             return event
         }
 

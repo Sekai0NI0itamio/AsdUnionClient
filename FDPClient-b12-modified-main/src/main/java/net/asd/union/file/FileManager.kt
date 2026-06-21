@@ -42,6 +42,7 @@ object FileManager : MinecraftInstance, Iterable<FileConfig> by FILE_CONFIGS {
     val friendsConfig = +FriendsConfig(File(dir, "friends.json"))
     val colorThemeConfig = +ColorThemeConfig(File(dir, "colorTheme.json"))
     val hudConfig = +HudConfig(File(dir, "hud.json"))
+    val recentAccountsConfig = +RecentAccountsConfig(File(dir, "recent_accounts.json"))
 
     val backgroundImageFile = File(dir, "userbackground.png")
     val backgroundShaderFile = File(dir, "userbackground.frag")

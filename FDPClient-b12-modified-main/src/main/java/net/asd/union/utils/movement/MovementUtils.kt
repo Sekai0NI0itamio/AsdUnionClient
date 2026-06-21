@@ -169,6 +169,22 @@ object MovementUtils : MinecraftInstance, Listenable {
     var serverY = .0
     var serverZ = .0
 
+    fun resetForTabSwitch() {
+        airTicks = 0
+        bps = 0.0
+        lastX = 0.0
+        lastY = 0.0
+        lastZ = 0.0
+        serverOnGround = false
+        serverX = 0.0
+        serverY = 0.0
+        serverZ = 0.0
+    }
+
+    fun resetTimerSpeed() {
+        mc.timer.timerSpeed = 1.0f
+    }
+
     val onPacket = handler<PacketEvent> { event ->
         if (event.isCancelled)
             return@handler

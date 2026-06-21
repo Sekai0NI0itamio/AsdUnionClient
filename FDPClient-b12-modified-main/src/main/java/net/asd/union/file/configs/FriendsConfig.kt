@@ -23,7 +23,9 @@ class FriendsConfig(file: File) : FileConfig(file) {
     @Throws(IOException::class)
     override fun loadConfig() {
         clearFriends()
-        file.readJson().decode<Array<Friend>>().toCollection(friends)
+        file.readJson().decode<Array<Friend>>()
+            .filter { it.playerName.isNotBlank() } // skip blank entries — they corrupt all rendered text
+            .toCollection(friends)
     }
 
     /**
@@ -42,6 +44,7 @@ class FriendsConfig(file: File) : FileConfig(file) {
      * @return of successfully added friend
      */
     fun addFriend(playerName: String, alias: String = playerName): Boolean {
+        if (playerName.isBlank()) return false
         if (isFriend(playerName)) return false
 
         friends += Friend(playerName, alias)

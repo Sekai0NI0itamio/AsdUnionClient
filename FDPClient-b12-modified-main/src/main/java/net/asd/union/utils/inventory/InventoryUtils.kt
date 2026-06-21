@@ -238,5 +238,14 @@ object InventoryUtils : MinecraftInstance, Listenable {
         serverOpenContainer = false
     }
 
+    fun resetForTabSwitch() {
+        _serverOpenInventory = false
+        serverOpenContainer = false
+        lerpedSlot = 0f
+        isFirstInventoryClick = true
+        timeSinceClosedInventory = 0L
+        CLICK_TIMER.reset()
+    }
+
 
 }

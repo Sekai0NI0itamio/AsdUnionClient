@@ -9,6 +9,7 @@ import net.asd.union.features.command.CommandManager;
 import net.asd.union.features.module.modules.client.ChatControl;
 import net.asd.union.features.module.modules.client.HUDModule;
 import net.asd.union.file.FileManager;
+import net.asd.union.handler.sessiontabs.ClientTabManager;
 import net.asd.union.ui.font.AWTFontRenderer;
 import net.asd.union.utils.render.RenderUtils;
 import net.minecraft.client.gui.Gui;
@@ -187,5 +188,7 @@ public abstract class MixinGuiChat extends MixinGuiScreen {
 
         if (ichatcomponent != null)
             handleComponentHover(ichatcomponent, mouseX, mouseY);
+
+        ClientTabManager.INSTANCE.renderOnScreen((GuiChat) (Object) this, mouseX, mouseY);
     }
 }

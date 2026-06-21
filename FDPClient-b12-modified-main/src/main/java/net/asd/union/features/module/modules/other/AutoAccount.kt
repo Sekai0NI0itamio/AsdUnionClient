@@ -270,6 +270,49 @@ object AutoAccount :
         return generatedRandomPassword!!
     }
 
+    /**
+     * Public accessor for the active password, used by TabSimulationThread
+     * to handle auth prompts for background tabs.
+     */
+    fun getActivePassword(): String = activePassword()
+
+    /**
+     * Tab-aware password resolver. Returns the correct password for a specific
+     * account tab — not the active tab's password.
+     *
+     * Priority:
+     *  1. Stored password for the account (from previous register/login on any server)
+     *  2. Stored password for the server
+     *  3. Active tab's password (configured custom password or random)
+     *
+     * This MUST be used by any background tab code paths (TabSimulationThread,
+     * background chat handlers) so that the password sent for a background
+     * account is the one associated with THAT account, not the active tab's.
+     */
+    fun getPasswordForAccount(accountName: String?, serverIP: String?): String {
+        if (accountName != null) {
+            accountPasswords[accountName]?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        if (serverIP != null) {
+            serverPasswords[serverIP]?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return activePassword()
+    }
+
+    /**
+     * Records a password for a specific account and server. Used by background
+     * tab code paths so the password is stored under the background tab's
+     * username, not the active tab's.
+     */
+    fun recordPasswordForAccount(serverIP: String?, accountName: String?, password: String) {
+        if (!recordPasswords) return
+        if (accountName == null) return
+        if (password.isBlank()) return
+        serverIP?.let { ip -> serverPasswords[ip] = password }
+        accountPasswords[accountName] = password
+        savePasswords()
+    }
+
     private fun relog(info: String = "") {
         // Disconnect from server
         if (mc.currentServerData != null && mc.theWorld != null)

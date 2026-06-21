@@ -5,7 +5,7 @@
  */
 package net.asd.union.injection.forge.mixins.item;
 
-import net.asd.union.features.module.modules.combat.KillAura;
+import net.asd.union.features.module.modules.combat.AuraBridge;
 import net.asd.union.features.module.modules.movement.NoSlow;
 import net.asd.union.features.module.modules.client.Animation;
 import net.asd.union.features.module.modules.client.Animations;
@@ -88,7 +88,6 @@ public abstract class MixinItemRenderer {
      */
     @Overwrite
     public void renderItemInFirstPerson(float partialTicks) {
-        final KillAura killAura = KillAura.INSTANCE;
         final NoSlow noSlow = NoSlow.INSTANCE;
         final Animations animations = Animations.INSTANCE;
 
@@ -118,8 +117,7 @@ public abstract class MixinItemRenderer {
         }
 
         if (itemToRender != null) {
-            boolean isForceBlocking = (itemToRender.getItem() instanceof ItemSword && !killAura.getAutoBlock().equals("Off") &&
-                    (killAura.getRenderBlocking() || killAura.getTarget() != null && (killAura.getBlinkAutoBlock() || killAura.getForceBlockRender()))
+            boolean isForceBlocking = (itemToRender.getItem() instanceof ItemSword && AuraBridge.shouldForceBlockRender()
                     || noSlow.isUNCPBlocking());
 
             if (itemToRender.getItem() instanceof ItemMap) {

@@ -12,7 +12,7 @@ import net.minecraftforge.fml.relauncher.Side
 import net.minecraftforge.fml.relauncher.SideOnly
 
 @SideOnly(Side.CLIENT)
-class ModuleElement(val module: Module) : ButtonElement(module.name, buttonAction = {
+open class ModuleElement(val module: Module) : ButtonElement(module.name, buttonAction = {
     // This module element handles the click action itself.
 }) {
     override val displayName

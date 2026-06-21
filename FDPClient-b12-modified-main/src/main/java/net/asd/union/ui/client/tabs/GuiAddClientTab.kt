@@ -104,17 +104,12 @@ class GuiAddClientTab(private val returnScreen: GuiScreen?) : AbstractScreen() {
         when (button.id) {
             2 -> {
                 draftMode = draftMode.next()
-                if (draftMode != AltNameMode.STYLIZED) {
-                    draftUnformatted = false
-                }
+                draftUnformatted = false
                 usernameField.text = generateSuggestedName()
             }
 
             3 -> {
-                if (draftMode == AltNameMode.STYLIZED) {
-                    draftUnformatted = !draftUnformatted
-                    usernameField.text = generateSuggestedName()
-                }
+                usernameField.text = generateSuggestedName()
             }
 
             4 -> {
@@ -169,12 +164,8 @@ class GuiAddClientTab(private val returnScreen: GuiScreen?) : AbstractScreen() {
 
     private fun refreshButtons() {
         modeButton.displayString = draftMode.displayName
-        rawButton.displayString = if (draftMode == AltNameMode.STYLIZED) {
-            "Raw: ${if (draftUnformatted) "On" else "Off"}"
-        } else {
-            "Raw: Auto"
-        }
-        rawButton.enabled = draftMode == AltNameMode.STYLIZED
+        rawButton.displayString = "Raw: Auto"
+        rawButton.enabled = false
     }
 
     private fun generateSuggestedName(): String {

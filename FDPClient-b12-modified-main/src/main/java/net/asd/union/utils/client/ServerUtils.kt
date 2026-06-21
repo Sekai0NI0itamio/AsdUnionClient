@@ -42,7 +42,17 @@ object ServerUtils : MinecraftInstance {
                 mc.theWorld = null
                 mc.setServerData(serverData)
 
-                val inetAddress = InetAddress.getByName(serverAddress.ip)
+                // When the tunnel is active, skip DNS resolution and use loopback.
+                // The tunnel at 127.0.0.1:25560 handles routing to the real server,
+                // and DNS may fail for hostnames only resolvable through the tunnel.
+                val shouldUseTunnel = net.asd.union.handler.network.ConnectToRouter.enabled
+                        && (net.asd.union.handler.network.ConnectToRouter.isTunnelMode()
+                            || net.asd.union.handler.network.ConnectToRouter.tunnelAvailable)
+                val inetAddress = if (shouldUseTunnel) {
+                    InetAddress.getByName("127.0.0.1")
+                } else {
+                    InetAddress.getByName(serverAddress.ip)
+                }
                 val networkManager = NetworkManager.createNetworkManagerAndConnect(
                     inetAddress,
                     serverAddress.port,

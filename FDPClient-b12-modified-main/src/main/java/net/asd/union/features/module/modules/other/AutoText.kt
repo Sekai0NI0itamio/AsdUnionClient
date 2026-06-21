@@ -257,7 +257,8 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
     }
 
     private fun normalizeMessages(entries: List<String>): List<String> {
-        return entries.map { it.trim() }.filter { it.isNotEmpty() }
+        // Do NOT trim — leading/trailing spaces are intentional (e.g. "prefix " attached to front)
+        return entries.filter { it.isNotEmpty() }
     }
 
     private fun updateMessages(newMessages: List<String>, saveImmediately: Boolean): Boolean {
@@ -268,10 +269,9 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
     
     // Public API for commands
     fun addMessage(message: String, saveImmediately: Boolean = true): Boolean {
-        val normalizedMessage = message.trim()
-        if (normalizedMessage.isBlank()) return false
+        if (message.isBlank()) return false
 
-        return updateMessages(messages + normalizedMessage, saveImmediately)
+        return updateMessages(messages + message, saveImmediately)
     }
 
     fun beginMessageEdit(id: Int): String? {
@@ -292,11 +292,10 @@ object AutoText : Module("AutoText", Category.OTHER, subjective = true, hideModu
         val index = id - 1
         if (index !in messages.indices) return false
 
-        val normalizedMessage = message.trim()
-        if (normalizedMessage.isBlank()) return false
+        if (message.isBlank()) return false
 
         val updatedMessages = messages.toMutableList().apply {
-            set(index, normalizedMessage)
+            set(index, message)
         }
 
         return updateMessages(updatedMessages, saveImmediately)

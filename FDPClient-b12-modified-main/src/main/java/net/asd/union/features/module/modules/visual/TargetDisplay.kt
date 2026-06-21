@@ -13,7 +13,7 @@ import net.asd.union.event.Render2DEvent
 import net.asd.union.event.handler
 import net.asd.union.features.module.Category
 import net.asd.union.features.module.Module
-import net.asd.union.features.module.modules.combat.KillAura
+import net.asd.union.features.module.modules.combat.AuraBridge
 import net.asd.union.ui.font.Fonts
 import net.asd.union.utils.render.RenderUtils.drawRect
 import net.asd.union.utils.render.RenderUtils.drawRectWithBorder
@@ -31,8 +31,8 @@ object TargetDisplay : Module("TargetDisplay", Category.VISUAL) {
     private val font by font("Font", Fonts.font40)
 
     val onRender2D = handler<Render2DEvent> {
-        val target = KillAura.target ?: return@handler
-        if (!KillAura.state) return@handler
+        val target = AuraBridge.getActiveTarget() ?: return@handler
+        if (!AuraBridge.isAuraActive()) return@handler
 
         val player = mc.thePlayer ?: return@handler
         val distance = player.getDistanceToEntity(target).roundToInt()

@@ -6,6 +6,7 @@
 package net.asd.union.injection.forge.mixins.gui;
 
 import net.asd.union.features.module.modules.client.HUDModule;
+import net.asd.union.handler.network.ConnectToRouter;
 import net.asd.union.handler.sessiontabs.ClientTabManager;
 import net.asd.union.ui.font.Fonts;
 import net.asd.union.utils.client.ServerUtils;
@@ -24,8 +25,11 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.Shadow;
+
+import java.net.InetAddress;
 
 @Mixin(GuiConnecting.class)
 @SideOnly(Side.CLIENT)
@@ -40,6 +44,43 @@ public abstract class MixinGuiConnecting extends GuiScreen {
     @Inject(method = "connect", at = @At("HEAD"))
     private void headConnect(final String ip, final int port, CallbackInfo callbackInfo) {
         ServerUtils.INSTANCE.setServerData(new ServerData("", ip + ":" + port, false));
+    }
+
+    /**
+     * When the tunnel is active, skip DNS resolution and use 127.0.0.1 directly.
+     * The tunnel handles routing to the real server, so DNS is unnecessary and
+     * may fail if the hostname is only resolvable through the tunnel's network.
+     * The background tunnel health check (ConnectToRouter) keeps
+     * {@code tunnelAvailable} up-to-date, so we trust that flag rather than
+     * doing another round-trip here.
+     */
+    @Redirect(
+        method = "connect",
+        at = @At(
+            value = "INVOKE",
+            target = "Ljava/net/InetAddress;getByName(Ljava/lang/String;)Ljava/net/InetAddress;",
+            remap = false
+        )
+    )
+    private InetAddress redirectDnsResolution(String host) throws Exception {
+        boolean shouldUseTunnel = ConnectToRouter.INSTANCE.getEnabled()
+                && (ConnectToRouter.INSTANCE.isTunnelMode() || ConnectToRouter.INSTANCE.getTunnelAvailable());
+
+        if (shouldUseTunnel) {
+            // Trust the background health-check flag. If the tunnel dies
+            // mid-connect, the Netty handshake will simply fail and the user
+            // sees a normal "Connection refused" — no need to do another
+            // round-trip in the redirector.
+            try {
+                return java.net.InetAddress.getByName("127.0.0.1");
+            } catch (Exception e) {
+                net.asd.union.utils.client.ClientUtils.INSTANCE.getLOGGER().warn("[GuiConnecting] Tunnel local resolve failed, falling back to direct: " + e.getMessage());
+                return java.net.InetAddress.getByName(host);
+            }
+        }
+
+        // No tunnel — resolve normally
+        return java.net.InetAddress.getByName(host);
     }
 
     @Inject(method = "actionPerformed", at = @At("HEAD"), cancellable = true)

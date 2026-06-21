@@ -1,5 +1,6 @@
 {
   "required": true,
+  "minVersion": "0.7",
   "package": "net.asd.union.injection.forge.mixins",
   "refmap": "fdpclient.mixins.refmap.json",
   "compatibilityLevel": "JAVA_8",
@@ -9,6 +10,7 @@
     "block.MixinBlockSoulSand",
     "client.MixinGameSettings",
     "client.MixinMinecraft",
+    "client.MixinMinecraftAccessor",
     "client.MixinMovementInput",
     "client.MixinMovementInputFromOptions",
     "client.MixinProfiler",
@@ -51,7 +53,9 @@
     "item.MixinItemRenderer",
     "item.MixinMixinItemStack",
     "network.MixinNetHandlerPlayClient",
+    "network.MixinNetHandlerLoginClient",
     "network.MixinNetworkManager",
+    "network.MixinPacketBuffer",
     "network.MixinPacketThreadUtil",
     "network.MixinOldServerPinger",
     "network.MixinNetworkPlayerInfo",
@@ -79,6 +83,7 @@
     "tweaks.MixinAnvilChunkLoader",
     "tweaks.MixinMinecraftServer",
     "util.MixinUtil",
+    "util.MixinCrashReport",
     "world.MixinChunk",
     "world.MixinWorld",
     "world.MixinWorldClient"
@@ -86,6 +91,7 @@
   "client": [
     "gui.MixinGuiAchievement",
     "gui.MixinGuiContainer",
+    "gui.MixinGuiInventory",
     "gui.MixinGuiTextField",
     "realms.MixinRealmsClient",
     "realms.MixinRealmsDataFetcher",
@@ -93,6 +99,7 @@
     "render.MixinChunkRenderDispatcher",
     "render.MixinItemRenderer",
     "render.MixinRenderChunk",
+    "render.MixinModelRotation",
     "render.MixinRenderGlobal",
     "tweaks.MixinEntityFX"
   ]
